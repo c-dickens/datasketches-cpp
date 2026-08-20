@@ -239,7 +239,72 @@ public:
    */
   string<Allocator> to_string() const;
 
+  using vector_bytes = std::vector<uint8_t, typename std::allocator_traits<Allocator>::template rebind_alloc<uint8_t>>;
+
+  /**
+   * Computes size in bytes required to serialize the current state of the sketch.
+   * @return size in bytes
+   */
+  size_t get_serialized_size_bytes() const;
+
+  /**
+   * This method serializes the sketch into a given stream in a binary form.
+   * @param os output stream
+   */
+  void serialize(std::ostream& os) const;
+
+  /**
+   * This method serializes the sketch as a vector of bytes.
+   * An optional header can be reserved in front of the sketch.
+   * It is a blank space of a given size.
+   * @param header_size_bytes space to reserve in front of the sketch
+   * @return serialized sketch as a vector of bytes
+   */
+  vector_bytes serialize(unsigned header_size_bytes = 0) const;
+
+  /**
+   * This method deserializes a sketch from a given stream.
+   * @param is input stream
+   * @param seed the seed the serialized sketch was built with
+   * @param allocator instance of an Allocator
+   * @return an instance of the sketch
+   * @throws std::invalid_argument on malformed or incompatible preamble or seed mismatch
+   * @throws std::runtime_error if reading from the stream fails
+   */
+  static minhash_sketch_alloc deserialize(std::istream& is, uint64_t seed = DEFAULT_SEED,
+      const Allocator& allocator = Allocator());
+
+  /**
+   * This method deserializes a sketch from a given array of bytes.
+   * @param bytes pointer to the array of bytes
+   * @param size the size of the array
+   * @param seed the seed the serialized sketch was built with
+   * @param allocator instance of an Allocator
+   * @return an instance of the sketch
+   * @throws std::invalid_argument on malformed or incompatible preamble or seed mismatch
+   * @throws std::out_of_range if the given array is too small
+   */
+  static minhash_sketch_alloc deserialize(const void* bytes, size_t size, uint64_t seed = DEFAULT_SEED,
+      const Allocator& allocator = Allocator());
+
 private:
+  /*
+   * Serialized sketch layout (16-byte preamble, then the signature):
+   * Byte 0: preamble longs (2)
+   * Byte 1: serial version (1)
+   * Byte 2: family id (23 - drafted on the dev@datasketches thread, NOT officially
+   *         assigned yet; must be confirmed cross-language before this format ships)
+   * Byte 3: flags (bit 0: is_empty)
+   * Bytes 4-5: k (uint16)
+   * Bytes 6-7: seed hash
+   * Bytes 8-15: unused (zeros)
+   * Bytes 16+: k signature words of 8 bytes each (omitted when the sketch is empty)
+   */
+  static const uint8_t PREAMBLE_LONGS = 2;
+  static const uint8_t SERIAL_VERSION = 1;
+  static const uint8_t FAMILY_ID = 23;
+  enum flags { IS_EMPTY };
+
   bool is_empty_;
   uint64_t seed_;
   vector_u64 signature_;
@@ -248,6 +313,8 @@ private:
 
   void check_compatible(const minhash_sketch_alloc& other) const;
   uint32_t count_matches(const minhash_sketch_alloc& other) const;
+  static void check_header_validity(uint8_t preamble_longs, uint8_t serial_version,
+      uint8_t family_id, uint16_t k);
 };
 
 /// MinHash sketch builder

@@ -31,4 +31,5 @@ add_test(
 target_sources(minhash_test
   PRIVATE
     minhash_sketch_test.cpp
+    minhash_sketch_serde_test.cpp
 )

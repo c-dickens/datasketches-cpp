@@ -27,6 +27,7 @@
 
 #include "MurmurHash3.h"
 #include "bounds_binomial_proportions.hpp"
+#include "memory_operations.hpp"
 
 namespace datasketches {
 
@@ -195,6 +196,126 @@ uint32_t minhash_sketch_alloc<A>::count_matches(const minhash_sketch_alloc& othe
     if (signature_[i] == other.signature_[i]) ++matches;
   }
   return matches;
+}
+
+template<typename A>
+size_t minhash_sketch_alloc<A>::get_serialized_size_bytes() const {
+  return PREAMBLE_LONGS * sizeof(uint64_t) + (is_empty_ ? 0 : signature_.size() * sizeof(uint64_t));
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::serialize(std::ostream& os) const {
+  const uint8_t preamble_longs = PREAMBLE_LONGS;
+  write(os, preamble_longs);
+  const uint8_t serial_version = SERIAL_VERSION;
+  write(os, serial_version);
+  const uint8_t family_id = FAMILY_ID;
+  write(os, family_id);
+  const uint8_t flags_byte = (is_empty_ ? 1 << flags::IS_EMPTY : 0);
+  write(os, flags_byte);
+  const uint16_t k = static_cast<uint16_t>(signature_.size());
+  write(os, k);
+  const uint16_t seed_hash = compute_seed_hash(seed_);
+  write(os, seed_hash);
+  const uint64_t unused64 = 0;
+  write(os, unused64);
+  if (is_empty_) return;
+  write(os, signature_.data(), signature_.size() * sizeof(uint64_t));
+}
+
+template<typename A>
+auto minhash_sketch_alloc<A>::serialize(unsigned header_size_bytes) const -> vector_bytes {
+  vector_bytes bytes(header_size_bytes + get_serialized_size_bytes(), 0, signature_.get_allocator());
+  uint8_t* ptr = bytes.data() + header_size_bytes;
+  const uint8_t preamble_longs = PREAMBLE_LONGS;
+  ptr += copy_to_mem(preamble_longs, ptr);
+  const uint8_t serial_version = SERIAL_VERSION;
+  ptr += copy_to_mem(serial_version, ptr);
+  const uint8_t family_id = FAMILY_ID;
+  ptr += copy_to_mem(family_id, ptr);
+  const uint8_t flags_byte = (is_empty_ ? 1 << flags::IS_EMPTY : 0);
+  ptr += copy_to_mem(flags_byte, ptr);
+  const uint16_t k = static_cast<uint16_t>(signature_.size());
+  ptr += copy_to_mem(k, ptr);
+  const uint16_t seed_hash = compute_seed_hash(seed_);
+  ptr += copy_to_mem(seed_hash, ptr);
+  const uint64_t unused64 = 0;
+  ptr += copy_to_mem(unused64, ptr);
+  if (!is_empty_) {
+    copy_to_mem(signature_.data(), ptr, signature_.size() * sizeof(uint64_t));
+  }
+  return bytes;
+}
+
+template<typename A>
+auto minhash_sketch_alloc<A>::deserialize(std::istream& is, uint64_t seed, const A& allocator)
+    -> minhash_sketch_alloc {
+  const auto preamble_longs = read<uint8_t>(is);
+  const auto serial_version = read<uint8_t>(is);
+  const auto family_id = read<uint8_t>(is);
+  const auto flags_byte = read<uint8_t>(is);
+  const auto k = read<uint16_t>(is);
+  const auto seed_hash = read<uint16_t>(is);
+  read<uint64_t>(is); // unused
+  if (!is.good()) throw std::runtime_error("error reading from std::istream");
+  check_header_validity(preamble_longs, serial_version, family_id, k);
+  if (seed_hash != compute_seed_hash(seed)) {
+    throw std::invalid_argument("incompatible seed hashes: " + std::to_string(seed_hash) + ", "
+        + std::to_string(compute_seed_hash(seed)));
+  }
+  minhash_sketch_alloc sketch(k, seed, allocator);
+  if ((flags_byte & (1 << flags::IS_EMPTY)) == 0) {
+    read(is, sketch.signature_.data(), static_cast<size_t>(k) * sizeof(uint64_t));
+    if (!is.good()) throw std::runtime_error("error reading from std::istream");
+    sketch.is_empty_ = false;
+  }
+  return sketch;
+}
+
+template<typename A>
+auto minhash_sketch_alloc<A>::deserialize(const void* bytes, size_t size, uint64_t seed,
+    const A& allocator) -> minhash_sketch_alloc {
+  ensure_minimum_memory(size, PREAMBLE_LONGS * sizeof(uint64_t));
+  const char* ptr = static_cast<const char*>(bytes);
+  uint8_t preamble_longs;
+  ptr += copy_from_mem(ptr, preamble_longs);
+  uint8_t serial_version;
+  ptr += copy_from_mem(ptr, serial_version);
+  uint8_t family_id;
+  ptr += copy_from_mem(ptr, family_id);
+  uint8_t flags_byte;
+  ptr += copy_from_mem(ptr, flags_byte);
+  uint16_t k;
+  ptr += copy_from_mem(ptr, k);
+  uint16_t seed_hash;
+  ptr += copy_from_mem(ptr, seed_hash);
+  ptr += sizeof(uint64_t); // unused
+  check_header_validity(preamble_longs, serial_version, family_id, k);
+  if (seed_hash != compute_seed_hash(seed)) {
+    throw std::invalid_argument("incompatible seed hashes: " + std::to_string(seed_hash) + ", "
+        + std::to_string(compute_seed_hash(seed)));
+  }
+  minhash_sketch_alloc sketch(k, seed, allocator);
+  if ((flags_byte & (1 << flags::IS_EMPTY)) == 0) {
+    ensure_minimum_memory(size, PREAMBLE_LONGS * sizeof(uint64_t)
+        + static_cast<size_t>(k) * sizeof(uint64_t));
+    copy_from_mem(ptr, sketch.signature_.data(), static_cast<size_t>(k) * sizeof(uint64_t));
+    sketch.is_empty_ = false;
+  }
+  return sketch;
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::check_header_validity(uint8_t preamble_longs, uint8_t serial_version,
+    uint8_t family_id, uint16_t k) {
+  if (preamble_longs != PREAMBLE_LONGS || serial_version != SERIAL_VERSION
+      || family_id != FAMILY_ID || k == 0) {
+    throw std::invalid_argument("possible corruption: preamble longs " + std::to_string(preamble_longs)
+        + " (expected " + std::to_string(PREAMBLE_LONGS) + "), serial version "
+        + std::to_string(serial_version) + " (expected " + std::to_string(SERIAL_VERSION)
+        + "), family " + std::to_string(family_id) + " (expected " + std::to_string(FAMILY_ID)
+        + "), k " + std::to_string(k) + " (expected at least 1)");
+  }
 }
 
 // builder
