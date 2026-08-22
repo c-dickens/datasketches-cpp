@@ -21,6 +21,7 @@ add_library(${PROJECT_NAME}::MINHASH ALIAS minhash)
 
 if (BUILD_TESTS)
   add_subdirectory(test)
+  add_subdirectory(example)
 endif()
 
 target_include_directories(minhash
