@@ -38,4 +38,6 @@ install(TARGETS minhash
 install(FILES
 			include/minhash_sketch.hpp
 			include/minhash_sketch_impl.hpp
+			include/minhash_lsh.hpp
+			include/minhash_lsh_impl.hpp
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/DataSketches")
