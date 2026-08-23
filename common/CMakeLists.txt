@@ -35,6 +35,7 @@ install(FILES
 			${CMAKE_CURRENT_BINARY_DIR}/include/version.hpp
       include/binomial_bounds.hpp
       include/bounds_binomial_proportions.hpp
+      include/canonical_double.hpp
       include/ceiling_power_of_2.hpp
 			include/common_defs.hpp
       include/conditional_back_inserter.hpp

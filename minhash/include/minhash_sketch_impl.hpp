@@ -27,6 +27,7 @@
 
 #include "MurmurHash3.h"
 #include "bounds_binomial_proportions.hpp"
+#include "canonical_double.hpp"
 #include "memory_operations.hpp"
 
 namespace datasketches {
@@ -51,6 +52,11 @@ uint32_t minhash_sketch_alloc<A>::get_num_hashes() const {
 template<typename A>
 uint64_t minhash_sketch_alloc<A>::get_seed() const {
   return seed_;
+}
+
+template<typename A>
+uint16_t minhash_sketch_alloc<A>::get_seed_hash() const {
+  return compute_seed_hash(seed_);
 }
 
 template<typename A>
@@ -105,7 +111,7 @@ void minhash_sketch_alloc<A>::update(int8_t value) {
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(double value) {
-  update(minhash_helpers::canonical_double(value));
+  update(canonical_double(value));
 }
 
 template<typename A>

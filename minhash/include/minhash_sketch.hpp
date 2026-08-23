@@ -32,7 +32,7 @@ namespace datasketches {
 /// MinHash sketch constants
 namespace minhash_constants {
   /// default number of hash slots
-  const uint16_t DEFAULT_K = 256;
+  constexpr uint16_t DEFAULT_K = 256;
 }
 
 // forward declaration
@@ -40,28 +40,6 @@ template<typename A> class minhash_sketch_alloc;
 
 /// MinHash sketch alias with default allocator
 using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
-
-namespace minhash_helpers {
-
-// double value canonicalization for compatibility with Java
-// (local copy of the theta sketch helper to keep this component self-contained)
-static inline int64_t canonical_double(double value) {
-  union {
-    int64_t long_value;
-    double double_value;
-  } long_double_union;
-
-  if (value == 0.0) {
-    long_double_union.double_value = 0.0; // canonicalize -0.0 to 0.0
-  } else if (std::isnan(value)) {
-    long_double_union.long_value = 0x7ff8000000000000L; // canonicalize NaN using value from Java's Double.doubleToLongBits()
-  } else {
-    long_double_union.double_value = value;
-  }
-  return long_double_union.long_value;
-}
-
-} /* namespace minhash_helpers */
 
 /**
  * MinHash sketch: a fixed-length signature of a set that supports estimating
@@ -90,6 +68,11 @@ public:
 
   class builder;
 
+  minhash_sketch_alloc(const minhash_sketch_alloc&) = default;
+  minhash_sketch_alloc(minhash_sketch_alloc&&) noexcept = default;
+  minhash_sketch_alloc& operator=(const minhash_sketch_alloc&) = default;
+  minhash_sketch_alloc& operator=(minhash_sketch_alloc&&) noexcept = default;
+
   /// @return true if this sketch has never been updated
   bool is_empty() const;
 
@@ -98,6 +81,9 @@ public:
 
   /// @return the hash seed
   uint64_t get_seed() const;
+
+  /// @return the seed hash (16-bit hash of the seed, used for serialization compatibility checks)
+  uint16_t get_seed_hash() const;
 
   /**
    * Signature accessor, primarily for LSH banding and testing.
@@ -300,9 +286,9 @@ private:
    * Bytes 8-15: unused (zeros)
    * Bytes 16+: k signature words of 8 bytes each (omitted when the sketch is empty)
    */
-  static const uint8_t PREAMBLE_LONGS = 2;
-  static const uint8_t SERIAL_VERSION = 1;
-  static const uint8_t FAMILY_ID = 23;
+  static constexpr uint8_t PREAMBLE_LONGS = 2;
+  static constexpr uint8_t SERIAL_VERSION = 1;
+  static constexpr uint8_t FAMILY_ID = 23;
   enum flags { IS_EMPTY };
 
   bool is_empty_;

@@ -33,28 +33,30 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
-#include <dirent.h>
 #include <fstream>
 #include <iomanip>
 #include <map>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <sys/stat.h>
-#include <sys/time.h>
 #include <vector>
+
+// POSIX headers for directory traversal (no C++11 portable alternative).
+// This example will not compile on MSVC/Windows without modification.
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include "minhash_lsh.hpp"
 
 using namespace datasketches;
 
-// Monotonic clock in milliseconds.
 static double now_ms() {
-  struct timeval tv;
-  gettimeofday(&tv, nullptr);
-  return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+  using clock = std::chrono::steady_clock;
+  static const auto start = clock::now();
+  return std::chrono::duration<double, std::milli>(clock::now() - start).count();
 }
 
 // Strip RFC 822 headers: everything before the first blank line.
