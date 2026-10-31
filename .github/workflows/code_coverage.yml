@@ -38,6 +38,7 @@ jobs:
       - name: Generate coverage .info
         run: cmake --build build --target coverage_report
       - name: Post to Coveralls
+        if: github.repository == 'apache/datasketches-cpp'
         continue-on-error: true
         run: |
           curl -sL https://coveralls.io/coveralls-linux.tar.gz | tar -xz
