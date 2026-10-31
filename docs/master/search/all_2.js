@@ -1,7 +1,7 @@
 var searchData=
 [
   ['c_20library_20component_0',['Apache DataSketches Core C++ Library Component',['../index.html',1,'']]],
-  ['compact_1',['compact',['../classdatasketches_1_1update__theta__sketch__alloc.html#af2a874b603390c143ecd4e6814ecbe3b',1,'datasketches::update_theta_sketch_alloc::compact()'],['../classdatasketches_1_1update__tuple__sketch.html#a8adfe3908612dc77d3708cecddb65515',1,'datasketches::update_tuple_sketch::compact()']]],
+  ['compact_1',['compact',['../classdatasketches_1_1update__theta__sketch__alloc.html#a76e50a332e07bdf93af19bb0a232d944',1,'datasketches::update_theta_sketch_alloc::compact()'],['../classdatasketches_1_1update__tuple__sketch.html#a8adfe3908612dc77d3708cecddb65515',1,'datasketches::update_tuple_sketch::compact()']]],
   ['compact_5farray_5fof_5fdoubles_5fsketch_2',['compact_array_of_doubles_sketch',['../namespacedatasketches.html#a35a4e048561529444021b2657eead4c8',1,'datasketches']]],
   ['compact_5farray_5ftuple_5fsketch_3',['compact_array_tuple_sketch',['../classdatasketches_1_1compact__array__tuple__sketch.html',1,'compact_array_tuple_sketch&lt; Array, Allocator &gt;'],['../classdatasketches_1_1compact__array__tuple__sketch.html#a1d5f786024b3df2ab6993056a22abad0',1,'datasketches::compact_array_tuple_sketch::compact_array_tuple_sketch()']]],
   ['compact_5ftheta_5fsketch_4',['compact_theta_sketch',['../namespacedatasketches.html#afd40c94af655767e4e9c1c4e650d97ed',1,'datasketches']]],

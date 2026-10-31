@@ -110,7 +110,11 @@ Public Member Functions</h2></td></tr>
 <tr class="memitem:a67646860b1cb8e835604a008fd7d062a" id="r_a67646860b1cb8e835604a008fd7d062a"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classdatasketches_1_1frequent__items__sketch.html#a67646860b1cb8e835604a008fd7d062a">merge</a> (<a class="el" href="classdatasketches_1_1frequent__items__sketch.html">frequent_items_sketch</a> &amp;&amp;other)</td></tr>
 <tr class="memdesc:a67646860b1cb8e835604a008fd7d062a"><td class="mdescLeft">&#160;</td><td class="mdescRight">This function merges the other sketch into this one.  <br /></td></tr>
 <tr class="separator:a67646860b1cb8e835604a008fd7d062a"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:ad20897c5c8bd47f5d4005989bead0e55" id="r_ad20897c5c8bd47f5d4005989bead0e55"><td class="memItemLeft" align="right" valign="top">void&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classdatasketches_1_1frequent__items__sketch.html#ad20897c5c8bd47f5d4005989bead0e55">reset</a> ()</td></tr>
+<tr class="memdesc:ad20897c5c8bd47f5d4005989bead0e55"><td class="mdescLeft">&#160;</td><td class="mdescRight">Resets this sketch to the empty state, as if newly constructed.  <br /></td></tr>
+<tr class="separator:ad20897c5c8bd47f5d4005989bead0e55"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a5a2b7a58dc85678d08752945ff655362" id="r_a5a2b7a58dc85678d08752945ff655362"><td class="memItemLeft" align="right" valign="top">bool&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classdatasketches_1_1frequent__items__sketch.html#a5a2b7a58dc85678d08752945ff655362">is_empty</a> () const</td></tr>
+<tr class="memdesc:a5a2b7a58dc85678d08752945ff655362"><td class="mdescLeft">&#160;</td><td class="mdescRight">A sketch is empty if it has not been updated with any positive weight.  <br /></td></tr>
 <tr class="separator:a5a2b7a58dc85678d08752945ff655362"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:af72439eee5521a156379f0fbd869cb12" id="r_af72439eee5521a156379f0fbd869cb12"><td class="memItemLeft" align="right" valign="top">uint32_t&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="classdatasketches_1_1frequent__items__sketch.html#af72439eee5521a156379f0fbd869cb12">get_num_active_items</a> () const</td></tr>
 <tr class="separator:af72439eee5521a156379f0fbd869cb12"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -173,7 +177,8 @@ Static Public Member Functions</h2></td></tr>
 <a name="details" id="details"></a><h2 class="groupheader">Detailed Description</h2>
 <div class="textblock"><div class="compoundTemplParams">template&lt;typename T, typename W = uint64_t, typename H = std::hash&lt;T&gt;, typename E = std::equal_to&lt;T&gt;, typename A = std::allocator&lt;T&gt;&gt;<br />
 class datasketches::frequent_items_sketch&lt; T, W, H, E, A &gt;</div><p>Frequent Items sketch. </p>
-<p>Based on Java implementation here: <a href="https://github.com/apache/datasketches-java/blob/master/src/main/java/org/apache/datasketches/frequencies/ItemsSketch.java">https://github.com/apache/datasketches-java/blob/master/src/main/java/org/apache/datasketches/frequencies/ItemsSketch.java</a> </p><dl class="section author"><dt>Author</dt><dd>Alexander Saydakov </dd></dl>
+<p>Based on Java implementation here: <a href="https://github.com/apache/datasketches-java/blob/master/src/main/java/org/apache/datasketches/frequencies/ItemsSketch.java">https://github.com/apache/datasketches-java/blob/master/src/main/java/org/apache/datasketches/frequencies/ItemsSketch.java</a> </p><dl class="section author"><dt>Author</dt><dd>Alexander Saydakov</dd></dl>
+<p>Sketch that may retain string values. For sketches containing strings, cross-language portability depends on using compatible string encodings. This class does not by itself enforce UTF-8 validity for all string inputs. </p>
 </div><h2 class="groupheader">Constructor &amp; Destructor Documentation</h2>
 <a id="a225f700985a82a592a6fd7dc685d6044" name="a225f700985a82a592a6fd7dc685d6044"></a>
 <h2 class="memtitle"><span class="permalink"><a href="#a225f700985a82a592a6fd7dc685d6044">&#9670;&#160;</a></span>frequent_items_sketch()</h2>
@@ -266,7 +271,7 @@ template&lt;typename T , typename W , typename H , typename E , typename A &gt; 
 </div><div class="memdoc">
 
 <p>Update this sketch with an item and a positive weight (frequency count). </p>
-<dl class="params"><dt>Parameters</dt><dd>
+<p>If cross-language portability is required, callers should ensure that the input string uses a compatible encoding (valid UTF-8). </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">item</td><td>for which the weight should be increased (lvalue) </td></tr>
     <tr><td class="paramname">weight</td><td>the amount by which the weight of the item should be increased A count of zero is a no-op, and a negative count will throw an exception. </td></tr>
@@ -305,7 +310,7 @@ template&lt;typename T , typename W , typename H , typename E , typename A &gt; 
 </div><div class="memdoc">
 
 <p>Update this sketch with an item and a positive weight (frequency count). </p>
-<dl class="params"><dt>Parameters</dt><dd>
+<p>If cross-language portability is required, callers should ensure that the input string uses a compatible encoding (valid UTF-8). </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">item</td><td>for which the weight should be increased (rvalue) </td></tr>
     <tr><td class="paramname">weight</td><td>the amount by which the weight of the item should be increased A count of zero is a no-op, and a negative count will throw an exception. </td></tr>
@@ -334,7 +339,7 @@ template&lt;typename T , typename W , typename H , typename E , typename A &gt; 
 </div><div class="memdoc">
 
 <p>This function merges the other sketch into this one. </p>
-<p>The other sketch may be of a different size. </p><dl class="params"><dt>Parameters</dt><dd>
+<p>The other sketch may be of a different size. If sketches contain strings, callers are responsible for ensuring that both sketches were built using compatible string encodings. </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">other</td><td>sketch to be merged into this (lvalue) </td></tr>
   </table>
@@ -362,12 +367,34 @@ template&lt;typename T , typename W , typename H , typename E , typename A &gt; 
 </div><div class="memdoc">
 
 <p>This function merges the other sketch into this one. </p>
-<p>The other sketch may be of a different size. </p><dl class="params"><dt>Parameters</dt><dd>
+<p>The other sketch may be of a different size. If sketches contain strings, callers are responsible for ensuring that both sketches were built using compatible string encodings. </p><dl class="params"><dt>Parameters</dt><dd>
   <table class="params">
     <tr><td class="paramname">other</td><td>sketch to be merged into this (rvalue) </td></tr>
   </table>
   </dd>
 </dl>
+
+</div>
+</div>
+<a id="ad20897c5c8bd47f5d4005989bead0e55" name="ad20897c5c8bd47f5d4005989bead0e55"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#ad20897c5c8bd47f5d4005989bead0e55">&#9670;&#160;</a></span>reset()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;typename T , typename W , typename H , typename E , typename A &gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname">void reset </td>
+          <td>(</td>
+          <td class="paramname"></td><td>)</td>
+          <td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Resets this sketch to the empty state, as if newly constructed. </p>
+<p>The maximum map size, equality operator and allocator are retained. The internal hash map restarts at its minimum size. </p>
 
 </div>
 </div>
@@ -387,7 +414,9 @@ template&lt;typename T , typename W , typename H , typename E , typename A &gt; 
         </tr>
       </table>
 </div><div class="memdoc">
-<dl class="section return"><dt>Returns</dt><dd>true if this sketch is empty </dd></dl>
+
+<p>A sketch is empty if it has not been updated with any positive weight. </p>
+<p>A non-empty sketch may retain no items if a purge removed all of them. </p><dl class="section return"><dt>Returns</dt><dd>true if this sketch is empty </dd></dl>
 
 </div>
 </div>
