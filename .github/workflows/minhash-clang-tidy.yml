@@ -16,8 +16,8 @@
 # under the License.
 
 # Fork-only workflow. It runs clang-tidy with the repo's .clang-tidy on the
-# C++ files under minhash/. Any clang-tidy warning fails the job. The job
-# passes when minhash/ has no C++ files.
+# changed C++ files under minhash/. Any clang-tidy warning fails the job. The
+# job passes when no C++ file under minhash/ changed.
 
 name: MinHash clang-tidy
 
@@ -41,32 +41,64 @@ jobs:
         with:
           submodules: true
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Install clang and clang-tidy
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-18 clang-tidy-18
 
-      - name: Run clang-tidy on minhash/**
+      - name: Run clang-tidy on changed minhash/** files
         env:
           CC: clang-18
           CXX: clang++-18
           CLANG_TIDY: clang-tidy-18
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
 
-          mapfile -t files < <(git ls-files -- 'minhash/**' \
-            | grep -E '\.(h|hh|hpp|hxx|c|cc|cpp|cxx)$' || true)
+          # Changed files: the PR diff, or the pushed range. A manual run, a
+          # new branch or an unknown range checks every file under minhash/.
+          range=""
+          if [[ "$EVENT" == "pull_request" ]]; then
+            range="$PR_BASE...HEAD"
+          elif [[ "$EVENT" == "push" && -n "$PUSH_BEFORE" \
+                  && ! "$PUSH_BEFORE" =~ ^0+$ ]] \
+               && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            range="$PUSH_BEFORE..HEAD"
+          fi
+          if [[ -n "$range" ]]; then
+            echo "Changed files in $range"
+            list() { git diff --name-only --diff-filter=d "$range" -- 'minhash/**'; }
+          else
+            echo "All files under minhash/"
+            list() { git ls-files -- 'minhash/**'; }
+          fi
+
+          # An _impl.hpp file does not include its own declarations, so
+          # clang-tidy checks it through its main header.
+          mapfile -t files < <(list | grep -E '\.(h|hh|hpp|hxx|c|cc|cpp|cxx)$' \
+            | while IFS= read -r f; do
+                if [[ "$f" == *_impl.hpp ]]; then
+                  main="${f%_impl.hpp}.hpp"
+                  [[ -f "$main" ]] && echo "$main"
+                else
+                  echo "$f"
+                fi
+              done | sort -u || true)
           if [[ ${#files[@]} -eq 0 ]]; then
-            echo "No C++ files under minhash/. Nothing to check."
+            echo "No changed C++ files under minhash/. Nothing to check."
             exit 0
           fi
-          printf 'Files under minhash/:\n'; printf '  %s\n' "${files[@]}"
+          printf 'Files to check:\n'; printf '  %s\n' "${files[@]}"
           "$CLANG_TIDY" --version
 
           # The compilation database gives the real flags for each .cpp file
-          # that CMake builds.
-          cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          # that CMake builds. C++11 stops modernize-* from suggesting C++14+.
+          cmake -B build -S . -DCMAKE_CXX_STANDARD=11 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
           # Flags for a file that is not in the compilation database.
           fallback=(-std=c++11)
@@ -74,14 +106,11 @@ jobs:
             find . -path ./build -prune -o -type d -name include -print | sort)
 
           tidy=("$CLANG_TIDY" --quiet --config-file=.clang-tidy
-                --warnings-as-errors='*' --header-filter='(^|/)minhash/')
+                --warnings-as-errors='*' --header-filter='.*/minhash/.*')
 
           status=0
           for f in "${files[@]}"; do
             case "$f" in
-              # An _impl.hpp file does not include its own declarations.
-              # clang-tidy checks it through its main header instead.
-              *_impl.hpp) continue ;;
               *.h|*.hh|*.hpp|*.hxx)
                 cmd=("${tidy[@]}" "$f" -- -x c++-header "${fallback[@]}") ;;
               *)
