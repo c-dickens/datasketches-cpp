@@ -1,0 +1,4 @@
+# Downloaded data stays out of git. Only the scripts are tracked.
+*
+!.gitignore
+!*.sh
