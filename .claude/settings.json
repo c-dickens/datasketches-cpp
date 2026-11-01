@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push *github.com/apache/*)",
+      "Bash(git push *github.com:apache/*)",
+      "Bash(git * push *github.com/apache/*)",
+      "Bash(git * push *github.com:apache/*)",
+      "Bash(git push apache*)",
+      "Bash(git push upstream*)",
+      "Bash(git push * apache *)",
+      "Bash(git push * upstream *)",
+      "Bash(gh pr create *apache/*)",
+      "Bash(gh api *repos/apache/*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__github__create_pull_request|mcp__github__push_files|mcp__github__create_or_update_file|mcp__github__create_branch|mcp__github__delete_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import json,sys; i=json.load(sys.stdin).get('tool_input',{}); o=str(i.get('owner','')).lower(); sys.exit(0) if o!='apache' else (sys.stderr.write('Blocked by .claude/settings.json: never push to or open a PR against apache/*.\\n'), sys.exit(2))\""
+          }
+        ]
+      }
+    ]
+  }
+}
