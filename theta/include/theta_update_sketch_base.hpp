@@ -26,6 +26,7 @@
 #include <iterator>
 
 #include "MurmurHash3.h"
+#include "canonical_double.hpp"
 #include "theta_comparators.hpp"
 #include "theta_constants.hpp"
 
@@ -230,23 +231,6 @@ private:
   uint32_t size_;
   uint32_t index_;
 };
-
-// double value canonicalization for compatibility with Java
-static inline int64_t canonical_double(double value) {
-  union {
-    int64_t long_value;
-    double double_value;
-  } long_double_union;
-
-  if (value == 0.0) {
-    long_double_union.double_value = 0.0; // canonicalize -0.0 to 0.0
-  } else if (std::isnan(value)) {
-    long_double_union.long_value = 0x7ff8000000000000L; // canonicalize NaN using value from Java's Double.doubleToLongBits()
-  } else {
-    long_double_union.double_value = value;
-  }
-  return long_double_union.long_value;
-}
 
 } /* namespace datasketches */
 
