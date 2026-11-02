@@ -183,25 +183,25 @@ $(document).ready(function() { init_codefold(0); });
 <div class="line"><a id="l00100" name="l00100"></a><span class="lineno">  100</span>      <span class="keywordflow">if</span> (EK()(entries_[i]) != 0) entries_[i].~EN();</div>
 <div class="line"><a id="l00101" name="l00101"></a><span class="lineno">  101</span>    }</div>
 <div class="line"><a id="l00102" name="l00102"></a><span class="lineno">  102</span>    allocator_.deallocate(entries_, size);</div>
-<div class="foldopen" id="foldopen00103" data-start="{" data-end="}">
-<div class="line"><a id="l00103" name="l00103"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a4b0aff81dd617849c00e8c1624a4218b">  103</a></span>  }</div>
-<div class="line"><a id="l00104" name="l00104"></a><span class="lineno">  104</span>}</div>
+<div class="line"><a id="l00103" name="l00103"></a><span class="lineno">  103</span>  }</div>
+<div class="foldopen" id="foldopen00104" data-start="{" data-end="}">
+<div class="line"><a id="l00104" name="l00104"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a4b0aff81dd617849c00e8c1624a4218b">  104</a></span>}</div>
 <div class="line"><a id="l00105" name="l00105"></a><span class="lineno">  105</span> </div>
 <div class="line"><a id="l00106" name="l00106"></a><span class="lineno">  106</span><span class="keyword">template</span>&lt;<span class="keyword">typename</span> EN, <span class="keyword">typename</span> EK, <span class="keyword">typename</span> A&gt;</div>
 <div class="line"><a id="l00107" name="l00107"></a><span class="lineno">  107</span>theta_update_sketch_base&lt;EN, EK, A&gt;&amp; theta_update_sketch_base&lt;EN, EK, A&gt;::operator=(<span class="keyword">const</span> theta_update_sketch_base&amp; other) {</div>
 <div class="line"><a id="l00108" name="l00108"></a><span class="lineno">  108</span>  theta_update_sketch_base&lt;EN, EK, A&gt; copy(other);</div>
 <div class="line"><a id="l00109" name="l00109"></a><span class="lineno">  109</span>  std::swap(allocator_, copy.allocator_);</div>
-<div class="foldopen" id="foldopen00110" data-start="{" data-end="}">
-<div class="line"><a id="l00110" name="l00110"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a249f556d18a3e5547e6ffef88d7e03ce">  110</a></span>  std::swap(is_empty_, copy.is_empty_);</div>
-<div class="line"><a id="l00111" name="l00111"></a><span class="lineno">  111</span>  std::swap(lg_cur_size_, copy.lg_cur_size_);</div>
+<div class="line"><a id="l00110" name="l00110"></a><span class="lineno">  110</span>  std::swap(is_empty_, copy.is_empty_);</div>
+<div class="foldopen" id="foldopen00111" data-start="{" data-end="}">
+<div class="line"><a id="l00111" name="l00111"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a249f556d18a3e5547e6ffef88d7e03ce">  111</a></span>  std::swap(lg_cur_size_, copy.lg_cur_size_);</div>
 <div class="line"><a id="l00112" name="l00112"></a><span class="lineno">  112</span>  std::swap(lg_nom_size_, copy.lg_nom_size_);</div>
 <div class="line"><a id="l00113" name="l00113"></a><span class="lineno">  113</span>  std::swap(rf_, copy.rf_);</div>
 <div class="line"><a id="l00114" name="l00114"></a><span class="lineno">  114</span>  std::swap(p_, copy.p_);</div>
 <div class="line"><a id="l00115" name="l00115"></a><span class="lineno">  115</span>  std::swap(num_entries_, copy.num_entries_);</div>
 <div class="line"><a id="l00116" name="l00116"></a><span class="lineno">  116</span>  std::swap(theta_, copy.theta_);</div>
-<div class="foldopen" id="foldopen00117" data-start="{" data-end="}">
-<div class="line"><a id="l00117" name="l00117"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a872b7237127174b060f0f8ddd00fe7de">  117</a></span>  std::swap(seed_, copy.seed_);</div>
-<div class="line"><a id="l00118" name="l00118"></a><span class="lineno">  118</span>  std::swap(entries_, copy.entries_);</div>
+<div class="line"><a id="l00117" name="l00117"></a><span class="lineno">  117</span>  std::swap(seed_, copy.seed_);</div>
+<div class="foldopen" id="foldopen00118" data-start="{" data-end="}">
+<div class="line"><a id="l00118" name="l00118"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#a872b7237127174b060f0f8ddd00fe7de">  118</a></span>  std::swap(entries_, copy.entries_);</div>
 <div class="line"><a id="l00119" name="l00119"></a><span class="lineno">  119</span>  <span class="keywordflow">return</span> *<span class="keyword">this</span>;</div>
 <div class="line"><a id="l00120" name="l00120"></a><span class="lineno">  120</span>}</div>
 <div class="line"><a id="l00121" name="l00121"></a><span class="lineno">  121</span> </div>
@@ -209,9 +209,9 @@ $(document).ready(function() { init_codefold(0); });
 <div class="line"><a id="l00123" name="l00123"></a><span class="lineno">  123</span>theta_update_sketch_base&lt;EN, EK, A&gt;&amp; theta_update_sketch_base&lt;EN, EK, A&gt;::operator=(theta_update_sketch_base&amp;&amp; other) {</div>
 <div class="line"><a id="l00124" name="l00124"></a><span class="lineno">  124</span>  std::swap(allocator_, other.allocator_);</div>
 <div class="line"><a id="l00125" name="l00125"></a><span class="lineno">  125</span>  std::swap(is_empty_, other.is_empty_);</div>
-<div class="foldopen" id="foldopen00126" data-start="{" data-end="}">
-<div class="line"><a id="l00126" name="l00126"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#ad17b87a607ca9cbeda22aca45d0a03b0">  126</a></span>  std::swap(lg_cur_size_, other.lg_cur_size_);</div>
-<div class="line"><a id="l00127" name="l00127"></a><span class="lineno">  127</span>  std::swap(lg_nom_size_, other.lg_nom_size_);</div>
+<div class="line"><a id="l00126" name="l00126"></a><span class="lineno">  126</span>  std::swap(lg_cur_size_, other.lg_cur_size_);</div>
+<div class="foldopen" id="foldopen00127" data-start="{" data-end="}">
+<div class="line"><a id="l00127" name="l00127"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#ad17b87a607ca9cbeda22aca45d0a03b0">  127</a></span>  std::swap(lg_nom_size_, other.lg_nom_size_);</div>
 <div class="line"><a id="l00128" name="l00128"></a><span class="lineno">  128</span>  std::swap(rf_, other.rf_);</div>
 <div class="line"><a id="l00129" name="l00129"></a><span class="lineno">  129</span>  std::swap(p_, other.p_);</div>
 <div class="line"><a id="l00130" name="l00130"></a><span class="lineno">  130</span>  std::swap(num_entries_, other.num_entries_);</div>
@@ -219,9 +219,9 @@ $(document).ready(function() { init_codefold(0); });
 <div class="line"><a id="l00132" name="l00132"></a><span class="lineno">  132</span>  std::swap(seed_, other.seed_);</div>
 <div class="line"><a id="l00133" name="l00133"></a><span class="lineno">  133</span>  std::swap(entries_, other.entries_);</div>
 <div class="line"><a id="l00134" name="l00134"></a><span class="lineno">  134</span>  <span class="keywordflow">return</span> *<span class="keyword">this</span>;</div>
-<div class="foldopen" id="foldopen00135" data-start="{" data-end="}">
-<div class="line"><a id="l00135" name="l00135"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#aef1998c3c61c65a50d9500395d611c7a">  135</a></span>}</div>
-<div class="line"><a id="l00136" name="l00136"></a><span class="lineno">  136</span> </div>
+<div class="line"><a id="l00135" name="l00135"></a><span class="lineno">  135</span>}</div>
+<div class="foldopen" id="foldopen00136" data-start="{" data-end="}">
+<div class="line"><a id="l00136" name="l00136"></a><span class="lineno"><a class="line" href="classdatasketches_1_1theta__base__builder.html#aef1998c3c61c65a50d9500395d611c7a">  136</a></span> </div>
 <div class="line"><a id="l00137" name="l00137"></a><span class="lineno">  137</span><span class="keyword">template</span>&lt;<span class="keyword">typename</span> EN, <span class="keyword">typename</span> EK, <span class="keyword">typename</span> A&gt;</div>
 <div class="line"><a id="l00138" name="l00138"></a><span class="lineno">  138</span>uint64_t theta_update_sketch_base&lt;EN, EK, A&gt;::hash_and_screen(<span class="keyword">const</span> <span class="keywordtype">void</span>* data, <span class="keywordtype">size_t</span> length) {</div>
 <div class="line"><a id="l00139" name="l00139"></a><span class="lineno">  139</span>  is_empty_ = <span class="keyword">false</span>;</div>
@@ -539,7 +539,7 @@ $(document).ready(function() { init_codefold(0); });
 </div>
 </div>
 </div>
-<div class="ttc" id="aclassdatasketches_1_1theta__base__builder_html"><div class="ttname"><a href="classdatasketches_1_1theta__base__builder.html">datasketches::theta_base_builder</a></div><div class="ttdoc">Theta base builder.</div><div class="ttdef"><b>Definition</b> theta_update_sketch_base.hpp:97</div></div>
+<div class="ttc" id="aclassdatasketches_1_1theta__base__builder_html"><div class="ttname"><a href="classdatasketches_1_1theta__base__builder.html">datasketches::theta_base_builder</a></div><div class="ttdoc">Theta base builder.</div><div class="ttdef"><b>Definition</b> theta_update_sketch_base.hpp:98</div></div>
 <div class="ttc" id="aclassdatasketches_1_1theta__base__builder_html_a249f556d18a3e5547e6ffef88d7e03ce"><div class="ttname"><a href="classdatasketches_1_1theta__base__builder.html#a249f556d18a3e5547e6ffef88d7e03ce">datasketches::theta_base_builder::set_lg_k</a></div><div class="ttdeci">Derived &amp; set_lg_k(uint8_t lg_k)</div><div class="ttdoc">Set log2(k), where k is a nominal number of entries in the sketch.</div><div class="ttdef"><b>Definition</b> theta_update_sketch_base_impl.hpp:312</div></div>
 <div class="ttc" id="aclassdatasketches_1_1theta__base__builder_html_a872b7237127174b060f0f8ddd00fe7de"><div class="ttname"><a href="classdatasketches_1_1theta__base__builder.html#a872b7237127174b060f0f8ddd00fe7de">datasketches::theta_base_builder::set_resize_factor</a></div><div class="ttdeci">Derived &amp; set_resize_factor(resize_factor rf)</div><div class="ttdoc">Set resize factor for the internal hash table (defaults to 8)</div><div class="ttdef"><b>Definition</b> theta_update_sketch_base_impl.hpp:324</div></div>
 <div class="ttc" id="aclassdatasketches_1_1theta__base__builder_html_ad17b87a607ca9cbeda22aca45d0a03b0"><div class="ttname"><a href="classdatasketches_1_1theta__base__builder.html#ad17b87a607ca9cbeda22aca45d0a03b0">datasketches::theta_base_builder::set_p</a></div><div class="ttdeci">Derived &amp; set_p(float p)</div><div class="ttdoc">Set sampling probability (initial theta).</div><div class="ttdef"><b>Definition</b> theta_update_sketch_base_impl.hpp:330</div></div>
