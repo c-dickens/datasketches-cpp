@@ -60,9 +60,52 @@ The loader (`include/news20/loader.hpp`) does this for each post:
 shingle count. The total shingle count is the sum, over all posts, of the
 number of distinct shingles in each post.
 
+### Agent trajectories
+
+```bash
+data/get_trajectories.sh                   # 100 task instances
+data/get_trajectories.sh --instances 1000  # the LSH demo uses 1,000
+```
+
+The script writes `data/trajectories_<N>.jsonl`. It downloads these files into
+`data/` the first time, and git ignores them:
+
+- `trajectories.parquet`, about 2 GB, from
+  [nebius/SWE-rebench-openhands-trajectories](https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories)
+  at a pinned revision. The script checks its SHA-256. The dataset has 67,074
+  trajectories of 6,306 task instances. The rows are shuffled, so any subset
+  needs the full file.
+- the DuckDB CLI v1.5.6 for the platform, from the DuckDB GitHub releases. The
+  script checks the SHA-256 of the zip.
+
+**Why DuckDB.** The dataset is one 2 GB parquet file, and C++ needs Apache
+Arrow to read parquet. The DuckDB command-line tool is one binary that converts
+the file once into JSON lines, which the C++ demos then read. Nothing else uses
+DuckDB.
+
+The script chooses the first N task instances, ordered by `md5(instance_id)`,
+that have at least 1 resolved and at least 1 unresolved trajectory. If fewer
+than N task instances qualify, it stops with an error. It writes one JSON
+object per trajectory of those task instances:
+
+- `trajectory_id`, `instance_id`, `resolved` (1 or 0, as in the source) and
+  `exit_status`;
+- `steps`: the messages from the 3rd message on, each as `{role, fn, args, out}`:
+  - `fn` is the tool name: the first tool call's function for an assistant
+    message, the `name` of a tool message, and `null` otherwise;
+  - `args` is the first tool call's arguments, as the JSON string of the source,
+    or `null`;
+  - `out` is the message content, cut to 1,000 characters.
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
   <http://qwone.com/~jason/20Newsgroups/>, and by the UCI Machine Learning
   Repository: Mitchell, T. (1997). *Twenty Newsgroups* [Dataset]. UCI Machine
   Learning Repository. <https://doi.org/10.24432/C5C323>.
+- **SWE-rebench-OpenHands-Trajectories.** By Nebius, licensed under
+  [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/):
+  Trofimova, M., Shevtsov, A., Badertdinov, I., Pyaev, K., Karasik, S. and
+  Golubev, A. (2025). *OpenHands Trajectories with
+  Qwen3-Coder-480B-A35B-Instruct*. Nebius blog.
+  <https://huggingface.co/datasets/nebius/SWE-rebench-openhands-trajectories>.
