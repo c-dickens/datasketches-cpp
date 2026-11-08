@@ -33,7 +33,6 @@ namespace datasketches {
 
 template<typename A>
 minhash_sketch_alloc<A>::minhash_sketch_alloc(uint16_t k, uint64_t seed, const A& allocator):
-is_empty_(true),
 seed_(seed),
 signature_(k, std::numeric_limits<uint64_t>::max(), allocator)
 {}
@@ -120,7 +119,7 @@ void minhash_sketch_alloc<A>::update(float value) {
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(const std::string& value) {
-  if (value.empty()) return;
+  if (value.empty()) { return; }
   update(value.c_str(), value.length());
 }
 
@@ -150,8 +149,8 @@ void minhash_sketch_alloc<A>::merge(const minhash_sketch_alloc& other) {
 template<typename A>
 double minhash_sketch_alloc<A>::jaccard(const minhash_sketch_alloc& other) const {
   check_compatible(other);
-  if (is_empty_ && other.is_empty_) return 1.0; // both represent the empty set
-  if (is_empty_ || other.is_empty_) return 0.0;
+  if (is_empty_ && other.is_empty_) { return 1.0; } // both represent the empty set
+  if (is_empty_ || other.is_empty_) { return 0.0; }
   return static_cast<double>(count_matches(other)) / static_cast<double>(signature_.size());
 }
 
@@ -159,8 +158,8 @@ template<typename A>
 std::array<double, 3> minhash_sketch_alloc<A>::jaccard_bounds(const minhash_sketch_alloc& other,
     uint8_t num_std_devs) const {
   check_compatible(other);
-  if (is_empty_ && other.is_empty_) return {1.0, 1.0, 1.0}; // both represent the empty set
-  if (is_empty_ || other.is_empty_) return {0.0, 0.0, 0.0};
+  if (is_empty_ && other.is_empty_) { return {1.0, 1.0, 1.0}; } // both represent the empty set
+  if (is_empty_ || other.is_empty_) { return {0.0, 0.0, 0.0}; }
   const uint64_t n = signature_.size();
   const uint64_t matches = count_matches(other);
   return {
@@ -198,7 +197,7 @@ template<typename A>
 uint32_t minhash_sketch_alloc<A>::count_matches(const minhash_sketch_alloc& other) const {
   uint32_t matches = 0;
   for (size_t i = 0; i < signature_.size(); ++i) {
-    if (signature_[i] == other.signature_[i]) ++matches;
+    if (signature_[i] == other.signature_[i]) { ++matches; }
   }
   return matches;
 }
@@ -214,7 +213,7 @@ allocator_(allocator)
 
 template<typename A>
 auto minhash_sketch_alloc<A>::builder::set_k(uint16_t k) -> builder& {
-  if (k == 0) throw std::invalid_argument("k must be at least 1");
+  if (k == 0) { throw std::invalid_argument("k must be at least 1"); }
   k_ = k;
   return *this;
 }

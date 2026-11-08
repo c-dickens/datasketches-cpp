@@ -101,8 +101,8 @@ TEST_CASE("minhash sketch: disjoint streams", "[minhash_sketch]") {
   const uint16_t k = 1024;
   auto sketch_a = minhash_sketch::builder().set_k(k).build();
   auto sketch_b = minhash_sketch::builder().set_k(k).build();
-  for (uint64_t i = 0; i < 10000; ++i) sketch_a.update(i);
-  for (uint64_t i = 10000; i < 20000; ++i) sketch_b.update(i);
+  for (uint64_t i = 0; i < 10000; ++i) { sketch_a.update(i); }
+  for (uint64_t i = 10000; i < 20000; ++i) { sketch_b.update(i); }
   // true J = 0, estimate should be within ~3 standard deviations of 0
   REQUIRE(sketch_a.jaccard(sketch_b) < 3.0 / std::sqrt(static_cast<double>(k)));
 
@@ -119,9 +119,9 @@ TEST_CASE("minhash sketch: known overlap", "[minhash_sketch]") {
   auto sketch_a = minhash_sketch::builder().set_k(k).build();
   auto sketch_b = minhash_sketch::builder().set_k(k).build();
   // A = [0, 15000), B = [0, 10000) + [15000, 20000): intersection 10000, union 20000, J = 0.5
-  for (uint64_t i = 0; i < 15000; ++i) sketch_a.update(i);
-  for (uint64_t i = 0; i < 10000; ++i) sketch_b.update(i);
-  for (uint64_t i = 15000; i < 20000; ++i) sketch_b.update(i);
+  for (uint64_t i = 0; i < 15000; ++i) { sketch_a.update(i); }
+  for (uint64_t i = 0; i < 10000; ++i) { sketch_b.update(i); }
+  for (uint64_t i = 15000; i < 20000; ++i) { sketch_b.update(i); }
 
   const double true_jaccard = 0.5;
   const double estimate = sketch_a.jaccard(sketch_b);
@@ -252,7 +252,7 @@ TEST_CASE("minhash sketch: allocator", "[minhash_sketch]") {
   test_allocator_net_allocations = 0;
   {
     auto sketch = minhash_sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(300).build();
-    for (uint64_t i = 0; i < 100; ++i) sketch.update(i);
+    for (uint64_t i = 0; i < 100; ++i) { sketch.update(i); }
     auto copy = sketch;
     copy.merge(sketch);
     REQUIRE(copy.jaccard(sketch) == 1.0);

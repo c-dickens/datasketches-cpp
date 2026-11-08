@@ -226,7 +226,7 @@ public:
   string<Allocator> to_string() const;
 
 private:
-  bool is_empty_;
+  bool is_empty_ = true;
   uint64_t seed_;
   vector_u64 signature_;
 
@@ -244,7 +244,7 @@ public:
    * Creates and instance of the builder with default parameters.
    * @param allocator instance of an Allocator to pass to created sketches
    */
-  explicit builder(const Allocator& allocator = Allocator());
+  explicit builder(const Allocator& allocator = Allocator()); // NOLINT(modernize-pass-by-value): same signature as the theta builders
 
   /**
    * Sets the number of hash slots k. Any value >= 1 is valid (k does not
