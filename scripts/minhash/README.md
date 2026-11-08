@@ -84,8 +84,9 @@ the file once into JSON lines, which the C++ demos then read. Nothing else uses
 DuckDB.
 
 The script chooses the first N task instances, ordered by `md5(instance_id)`,
-that have at least 1 resolved and at least 1 unresolved trajectory. It writes
-one JSON object per trajectory of those task instances:
+that have at least 1 resolved and at least 1 unresolved trajectory. If fewer
+than N task instances qualify, it stops with an error. It writes one JSON
+object per trajectory of those task instances:
 
 - `trajectory_id`, `instance_id`, `resolved` (1 or 0, as in the source) and
   `exit_status`;

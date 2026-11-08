@@ -27,7 +27,8 @@
 #    its SHA-256.
 # 2. Downloads the DuckDB CLI v1.5.6 for this platform and checks its SHA-256.
 # 3. Chooses the first N task instances, ordered by md5(instance_id), that have
-#    at least 1 resolved and at least 1 unresolved trajectory.
+#    at least 1 resolved and at least 1 unresolved trajectory. It stops with an
+#    error if fewer than N task instances qualify.
 # 4. Writes one JSON object per trajectory of those task instances:
 #    trajectory_id, instance_id, resolved, exit_status and steps. The steps are
 #    the messages from the 3rd message on, each as {role, fn, args, out}.
@@ -133,17 +134,25 @@ if [ ! -x "$duckdb" ]; then
   chmod +x "$duckdb"
 fi
 
-# 3 and 4. Choose the task instances and write the JSON lines.
+# 3. The task instances with at least 1 resolved and 1 unresolved trajectory.
+qualifying="
+    SELECT instance_id
+    FROM read_parquet('$parquet')
+    GROUP BY instance_id
+    HAVING bool_or(resolved = 1) AND bool_or(resolved = 0)"
+available="$("$duckdb" -batch -bail -csv -noheader -c "SELECT count(*) FROM ($qualifying)")"
+if [ "$available" -lt "$instances" ]; then
+  echo "error: only $available task instances have both a resolved and an unresolved trajectory, fewer than --instances $instances." >&2
+  exit 1
+fi
+
+# 4. Choose the task instances and write the JSON lines.
 out="trajectories_$instances.jsonl"
 echo "trajectories: writing $out ($instances task instances)"
 rm -f "$out.part"
 "$duckdb" -batch -bail -c "
 COPY (
-  WITH chosen AS (
-    SELECT instance_id
-    FROM read_parquet('$parquet')
-    GROUP BY instance_id
-    HAVING bool_or(resolved = 1) AND bool_or(resolved = 0)
+  WITH chosen AS ($qualifying
     ORDER BY md5(instance_id)
     LIMIT $instances
   )
