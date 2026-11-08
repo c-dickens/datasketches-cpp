@@ -44,6 +44,10 @@ Licence headers:
 
     tools/rat-check.sh
 
+Trajectory data. Run it from the repo root, exactly as written, because `.claude/settings.json` allows this command. It checks the SHA-256 of the DuckDB binary it downloads. Do not run that binary directly:
+
+    scripts/minhash/data/get_trajectories.sh [--instances N]
+
 CI also runs MSVC and the full gcc matrix. CI is the final check.
 
 ## Skills

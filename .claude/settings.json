@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(scripts/minhash/data/get_trajectories.sh)",
+      "Bash(scripts/minhash/data/get_trajectories.sh *)"
+    ],
     "deny": [
       "Bash(git push *github.com/apache/*)",
       "Bash(git push *github.com:apache/*)",
