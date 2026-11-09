@@ -97,24 +97,31 @@ TEST_CASE("minhash sketch: identical streams", "[minhash_sketch]") {
   REQUIRE(bounds[2] == 1.0);
 }
 
-TEST_CASE("minhash sketch: disjoint streams", "[minhash_sketch]") {
+TEST_CASE("minhash sketch: disjoint streams", "[minhash_sketch][minhash][stats]") {
   const uint16_t k = 1024;
   auto sketch_a = minhash_sketch::builder().set_k(k).build();
   auto sketch_b = minhash_sketch::builder().set_k(k).build();
   for (uint64_t i = 0; i < 10000; ++i) { sketch_a.update(i); }
   for (uint64_t i = 10000; i < 20000; ++i) { sketch_b.update(i); }
-  // true J = 0, estimate should be within ~3 standard deviations of 0
-  REQUIRE(sketch_a.jaccard(sketch_b) < 3.0 / std::sqrt(static_cast<double>(k)));
+  // True J = 0, so matches ~ Binomial(k, 0) and SD = 0: a slot can match only if
+  // two different items give the same 64-bit slot value. By the union bound,
+  // P(any match) <= k * |A| * |B| / 2^64 = 1024 * 10^8 / 2^64 < 6e-9.
+  REQUIRE(sketch_a.jaccard(sketch_b) == 0.0);
 
-  // bounds at the matches == 0 extreme: lower bound and estimate pin to 0
-  const auto bounds = sketch_a.jaccard_bounds(sketch_b);
+  // Bounds at matches == 0: the lower bound and the estimate are 0. The upper
+  // bound is the exact Clopper-Pearson bound for 0 successes in k trials, which
+  // solves (1 - p)^k = delta, so p = 1 - delta^(1/k), with delta = Phi(-2) for
+  // 2 SD. The library's erf (Abramowitz-Stegun 7.1.28) has |error| <= 3e-7, so
+  // delta has |error| <= 1.5e-7. Since p ~ -ln(delta) / k, the relative error of
+  // p is at most (1.5e-7 / delta) / |ln(delta)|, about 2e-6. Allow 1e-5.
+  const auto bounds = sketch_a.jaccard_bounds(sketch_b, 2);
+  const double delta = 0.5 * std::erfc(2.0 / std::sqrt(2.0));
   REQUIRE(bounds[0] == 0.0);
   REQUIRE(bounds[1] == 0.0);
-  REQUIRE(bounds[2] > 0.0);
-  REQUIRE(bounds[2] < 0.02);
+  REQUIRE(bounds[2] == Approx(1.0 - std::pow(delta, 1.0 / k)).epsilon(1e-5));
 }
 
-TEST_CASE("minhash sketch: known overlap", "[minhash_sketch]") {
+TEST_CASE("minhash sketch: known overlap", "[minhash_sketch][minhash][stats]") {
   const uint16_t k = 2048;
   auto sketch_a = minhash_sketch::builder().set_k(k).build();
   auto sketch_b = minhash_sketch::builder().set_k(k).build();
@@ -123,16 +130,24 @@ TEST_CASE("minhash sketch: known overlap", "[minhash_sketch]") {
   for (uint64_t i = 0; i < 10000; ++i) { sketch_b.update(i); }
   for (uint64_t i = 15000; i < 20000; ++i) { sketch_b.update(i); }
 
+  // matches ~ Binomial(k, J), so the estimate matches / k has
+  // SD = sqrt(J * (1 - J) / k). Require |estimate - J| <= 5 * SD.
   const double true_jaccard = 0.5;
+  const double sd = std::sqrt(true_jaccard * (1 - true_jaccard) / k);
   const double estimate = sketch_a.jaccard(sketch_b);
-  REQUIRE(estimate == Approx(true_jaccard).margin(3 * std::sqrt(0.25 / k)));
+  REQUIRE(estimate == Approx(true_jaccard).margin(5 * sd));
 
+  // The 3 SD bounds are approximate Clopper-Pearson bounds on matches / k.
+  // For p = matches / k, they lie within z^2 / k of the normal bounds
+  // p -/+ z * sqrt(p * (1 - p) / k), with z = 3. This checks that the sketch
+  // passes k, matches and num_std_devs correctly. It does not check coverage:
+  // one fixed sample cannot do that without a chance of failure.
   const auto bounds = sketch_a.jaccard_bounds(sketch_b, 3);
-  REQUIRE(bounds[0] <= true_jaccard);
-  REQUIRE(bounds[2] >= true_jaccard);
-  REQUIRE(bounds[0] <= bounds[1]);
-  REQUIRE(bounds[1] <= bounds[2]);
+  const double z = 3;
+  const double half_width = z * std::sqrt(estimate * (1 - estimate) / k);
   REQUIRE(bounds[1] == estimate);
+  REQUIRE(bounds[0] == Approx(estimate - half_width).margin(z * z / k));
+  REQUIRE(bounds[2] == Approx(estimate + half_width).margin(z * z / k));
 }
 
 TEST_CASE("minhash sketch: merge equals sketch of union", "[minhash_sketch]") {
@@ -179,6 +194,22 @@ TEST_CASE("minhash sketch: incompatible k or seed throws", "[minhash_sketch]") {
   REQUIRE_THROWS_AS(sketch_a.merge(sketch_c), std::invalid_argument);
   REQUIRE_THROWS_AS(sketch_a.jaccard(sketch_c), std::invalid_argument);
   REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_c), std::invalid_argument);
+}
+
+TEST_CASE("minhash sketch: jaccard_bounds num_std_devs must be 1, 2 or 3", "[minhash_sketch]") {
+  auto sketch_a = minhash_sketch::builder().set_k(64).build();
+  auto sketch_b = minhash_sketch::builder().set_k(64).build();
+  // the range is checked before the empty cases
+  REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_b, 0), std::invalid_argument);
+  REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_b, 4), std::invalid_argument);
+  sketch_a.update(static_cast<uint64_t>(1));
+  sketch_b.update(static_cast<uint64_t>(2));
+  REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_b, 0), std::invalid_argument);
+  REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_b, 4), std::invalid_argument);
+  REQUIRE_THROWS_AS(sketch_a.jaccard_bounds(sketch_b, 255), std::invalid_argument);
+  for (uint8_t num_std_devs = 1; num_std_devs <= 3; ++num_std_devs) {
+    REQUIRE_NOTHROW(sketch_a.jaccard_bounds(sketch_b, num_std_devs));
+  }
 }
 
 TEST_CASE("minhash sketch: cross-type update consistency", "[minhash_sketch]") {

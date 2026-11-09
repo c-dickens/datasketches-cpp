@@ -157,6 +157,10 @@ double minhash_sketch_alloc<A>::jaccard(const minhash_sketch_alloc& other) const
 template<typename A>
 std::array<double, 3> minhash_sketch_alloc<A>::jaccard_bounds(const minhash_sketch_alloc& other,
     uint8_t num_std_devs) const {
+  // same range as the theta bounds (binomial_bounds::check_num_std_devs)
+  if (num_std_devs < 1 || num_std_devs > 3) {
+    throw std::invalid_argument("num_std_devs must be 1, 2 or 3");
+  }
   check_compatible(other);
   if (is_empty_ && other.is_empty_) { return {1.0, 1.0, 1.0}; } // both represent the empty set
   if (is_empty_ || other.is_empty_) { return {0.0, 0.0, 0.0}; }

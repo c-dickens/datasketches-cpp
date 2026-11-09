@@ -56,9 +56,18 @@ using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
  * of 2. This keeps the lattice of LSH banding configurations (b bands of r rows
  * requires b * r = k) and their threshold midpoints (1/b)^(1/r) dense.
  *
- * The theta sketch also estimates pairwise Jaccard similarity; the reason this
- * sketch exists is that its positionally aligned signature supports LSH banding
- * for sub-quadratic all-pairs similarity search, which theta cannot do.
+ * Each slot taken alone is an unbiased MinHash, and the slot-match count has close
+ * to binomial variance. But the double hashing above makes the slots dependent in
+ * groups of three or more: g_{i+2} = 2 * g_{i+1} - g_i for every item. A band of r
+ * slots from two dissimilar sets therefore collides more often than J^r, mainly
+ * for small sets. Do not use the signature for LSH banding until the slot hashing
+ * is replaced with independent slots.
+ *
+ * The theta sketch also estimates the Jaccard similarity of two sets. This sketch
+ * adds a signature in which slot i of every sketch uses the same hash function, so
+ * LSH banding can find candidate pairs without a comparison of every pair. A theta
+ * sketch keeps the k smallest values of one hash function, so its retained values
+ * do not align by position, and banding does not apply to it.
  */
 template<typename Allocator = std::allocator<uint64_t>>
 class minhash_sketch_alloc {
@@ -87,6 +96,7 @@ public:
 
   /**
    * Signature accessor, primarily for LSH banding and testing.
+   * See the class comment: the current slots are not yet fit for LSH banding.
    * @return the k-slot signature (every slot is UINT64_MAX until the first update)
    */
   const vector_u64& get_signature() const;
@@ -213,9 +223,9 @@ public:
    * If both sketches are empty the result is {1, 1, 1};
    * if exactly one is empty the result is {0, 0, 0}.
    * @param other sketch to compare this one with
-   * @param num_std_devs number of standard deviations defining the confidence interval
+   * @param num_std_devs number of standard deviations defining the confidence interval: 1, 2 or 3
    * @return array of {lower bound, estimate, upper bound}
-   * @throws std::invalid_argument if k or seed do not match
+   * @throws std::invalid_argument if num_std_devs is not 1, 2 or 3, or if k or seed do not match
    */
   std::array<double, 3> jaccard_bounds(const minhash_sketch_alloc& other, uint8_t num_std_devs = 2) const;
 
