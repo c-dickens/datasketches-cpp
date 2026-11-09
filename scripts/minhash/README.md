@@ -97,6 +97,42 @@ object per trajectory of those task instances:
     or `null`;
   - `out` is the message content, cut to 1,000 characters.
 
+### Trajectory featurizer (v1)
+
+The featurizer (`include/trajectory/featurizer.hpp`) turns each trajectory into
+a set of tokens that describes what the agent did. The tokens are the sketch's
+input items. It reads the JSON lines with
+[nlohmann/json](https://github.com/nlohmann/json) v3.11.3, which CMake fetches.
+
+1. It normalises each bash call: it removes a leading `cd /workspace/<dir> && `
+   from the command. `strip_bash_footer` drops the footer lines
+   `[The command completed with exit code N.]`, `[Current working directory: …]`,
+   `[Python interpreter: …]` and `[Command finished with exit code N]`.
+2. Each step (an assistant message with a tool call) becomes one symbol,
+   `tool:subcommand:outcome`:
+
+   | Tool | Subcommand | Outcome |
+   |---|---|---|
+   | `execute_bash` | the first word of the normalised command | `ok` for exit code 0, `exit<N>` for another code, `timeout` for the timeout notice, `unknown` if the reply has neither |
+   | `str_replace_editor` | the `command` argument | `error` if the reply starts with `ERROR:`, else `ok` |
+   | `task_tracker` | the `command` argument | `ok` |
+   | `think`, `finish` | `-` | `ok` |
+
+   A `user` message that reports a malformed call (it contains
+   `[Error occurred in processing last action]`, or says `Tool … is not
+   registered.`) sets the outcome of the step before it to `malformed`.
+3. A token is 3 steps in a row. Its encoding writes each symbol as
+   `<length>:<symbol>` and joins them, so two different symbol lists never give
+   the same string.
+4. The tokens of a trajectory are a set: repeated tokens count once.
+
+The source cuts each reply to 1,000 characters, and the exit code is in the
+footer at the end of the reply. So the outcome of about 42% of bash steps is
+`unknown`.
+
+`build/trajectory_stats data/trajectories_100.jsonl` prints the trajectory
+count, and the minimum, median and maximum token-set size.
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
