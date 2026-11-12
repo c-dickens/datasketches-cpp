@@ -80,7 +80,9 @@ public:
   minhash_sketch_alloc(const minhash_sketch_alloc&) = default;
   minhash_sketch_alloc(minhash_sketch_alloc&&) noexcept = default;
   minhash_sketch_alloc& operator=(const minhash_sketch_alloc&) = default;
-  minhash_sketch_alloc& operator=(minhash_sketch_alloc&&) noexcept = default;
+  // not noexcept, as in theta: with an allocator that does not propagate and
+  // compares unequal, the vector copies its elements and can throw
+  minhash_sketch_alloc& operator=(minhash_sketch_alloc&&) = default;
 
   /// @return true if this sketch has never been updated
   bool is_empty() const;

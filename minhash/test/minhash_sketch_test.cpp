@@ -294,4 +294,131 @@ TEST_CASE("minhash sketch: allocator", "[minhash_sketch]") {
   REQUIRE(test_allocator_net_allocations == 0);
 }
 
+TEST_CASE("minhash sketch: copy and move", "[minhash_sketch]") {
+  test_allocator_total_bytes = 0;
+  test_allocator_net_allocations = 0;
+  {
+    auto sketch = minhash_sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(100).set_seed(123).build();
+    for (uint64_t i = 0; i < 1000; ++i) { sketch.update(i); }
+    const auto signature = sketch.get_signature();
+
+    // copy construction
+    minhash_sketch_test_alloc copy(sketch);
+    REQUIRE(copy.get_signature() == signature);
+    REQUIRE(copy.get_seed() == 123);
+    REQUIRE(!copy.is_empty());
+
+    // move construction
+    minhash_sketch_test_alloc moved(std::move(copy));
+    REQUIRE(moved.get_signature() == signature);
+    REQUIRE(moved.get_seed() == 123);
+    REQUIRE(!moved.is_empty());
+
+    // copy assignment over an empty sketch with different k and seed
+    auto assigned = minhash_sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(10).build();
+    assigned = sketch;
+    REQUIRE(assigned.get_signature() == signature);
+    REQUIRE(assigned.get_seed() == 123);
+    REQUIRE(!assigned.is_empty());
+
+    // move assignment over an empty sketch with different k and seed
+    auto move_assigned = minhash_sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(10).build();
+    move_assigned = std::move(assigned);
+    REQUIRE(move_assigned.get_signature() == signature);
+    REQUIRE(move_assigned.get_seed() == 123);
+    REQUIRE(!move_assigned.is_empty());
+
+    // the empty flag is copied too
+    auto empty = minhash_sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(100).set_seed(123).build();
+    move_assigned = empty;
+    REQUIRE(move_assigned.is_empty());
+  }
+  REQUIRE(test_allocator_total_bytes == 0);
+  REQUIRE(test_allocator_net_allocations == 0);
+}
+
+TEST_CASE("minhash sketch: seed hash", "[minhash_sketch]") {
+  // 0x93CC is the seed hash of DEFAULT_SEED (9001) in every DataSketches language
+  REQUIRE(minhash_sketch::builder().build().get_seed_hash() == 0x93CC);
+  REQUIRE(minhash_sketch::builder().build().get_seed_hash() == compute_seed_hash(DEFAULT_SEED));
+  REQUIRE(minhash_sketch::builder().set_seed(123).build().get_seed_hash() == compute_seed_hash(123));
+  REQUIRE(minhash_sketch::builder().set_seed(123).build().get_seed_hash() != 0x93CC);
+}
+
+TEST_CASE("minhash sketch: k = 1", "[minhash_sketch]") {
+  auto make = [] { return minhash_sketch::builder().set_k(1).build(); };
+  // delta = Phi(-2) for 2 SD; the library's erf has |error| <= 3e-7, so delta has |error| <= 1.5e-7
+  const double delta = 0.5 * std::erfc(2.0 / std::sqrt(2.0));
+
+  // identical sets: 1 match in 1 slot. Exact Clopper-Pearson lower bound for
+  // n successes in n trials solves p^n = delta, so p = delta for n = 1.
+  auto a = make(); a.update(static_cast<uint64_t>(1));
+  auto b = make(); b.update(static_cast<uint64_t>(1));
+  REQUIRE(a.get_signature().size() == 1);
+  REQUIRE(a.jaccard(b) == 1.0);
+  auto bounds = a.jaccard_bounds(b);
+  REQUIRE(bounds[0] == Approx(delta).margin(1e-6));
+  REQUIRE(bounds[1] == 1.0);
+  REQUIRE(bounds[2] == 1.0);
+
+  // different items: 0 matches in 1 slot (barring a 64-bit tie). Exact upper
+  // bound for 0 successes in n trials solves (1 - p)^n = delta, so p = 1 - delta.
+  auto c = make(); c.update(static_cast<uint64_t>(2));
+  REQUIRE(a.jaccard(c) == 0.0);
+  bounds = a.jaccard_bounds(c);
+  REQUIRE(bounds[0] == 0.0);
+  REQUIRE(bounds[1] == 0.0);
+  REQUIRE(bounds[2] == Approx(1.0 - delta).margin(1e-6));
+
+  // merge equals the sketch of the union
+  auto u = make(); u.update(static_cast<uint64_t>(1)); u.update(static_cast<uint64_t>(2));
+  a.merge(c);
+  REQUIRE(a.get_signature() == u.get_signature());
+}
+
+TEST_CASE("minhash sketch: merge does not depend on the order", "[minhash_sketch]") {
+  auto make = [] { return minhash_sketch::builder().set_k(128).build(); };
+  auto a = make(); for (uint64_t i = 0; i < 1000; ++i) { a.update(i); }
+  auto b = make(); for (uint64_t i = 500; i < 1500; ++i) { b.update(i); }
+  auto c = make(); for (uint64_t i = 1200; i < 3000; ++i) { c.update(i); }
+
+  // commutative: a + b == b + a
+  auto ab = a; ab.merge(b);
+  auto ba = b; ba.merge(a);
+  REQUIRE(ab.get_signature() == ba.get_signature());
+
+  // associative: (a + b) + c == a + (b + c)
+  auto ab_c = ab; ab_c.merge(c);
+  auto bc = b; bc.merge(c);
+  auto a_bc = a; a_bc.merge(bc);
+  REQUIRE(ab_c.get_signature() == a_bc.get_signature());
+
+  // self-merge changes nothing
+  auto aa = a; aa.merge(aa);
+  REQUIRE(aa.get_signature() == a.get_signature());
+}
+
+TEST_CASE("minhash sketch: maximum values", "[minhash_sketch]") {
+  // largest k
+  auto big = minhash_sketch::builder().set_k(65535).build();
+  REQUIRE(big.get_num_hashes() == 65535);
+  big.update(static_cast<uint64_t>(1));
+  REQUIRE(big.jaccard(big) == 1.0);
+  const auto& signature = big.get_signature();
+  REQUIRE(std::count(signature.begin(), signature.end(), std::numeric_limits<uint64_t>::max()) == 0);
+
+  // extreme items: UINT64_MAX has the same 8 bytes as int64 -1, so it is the same item
+  auto make = [] { return minhash_sketch::builder().set_k(64).build(); };
+  auto u_max = make(); u_max.update(std::numeric_limits<uint64_t>::max());
+  auto i_neg1 = make(); i_neg1.update(static_cast<int64_t>(-1));
+  auto i_min = make(); i_min.update(std::numeric_limits<int64_t>::min());
+  auto i_max = make(); i_max.update(std::numeric_limits<int64_t>::max());
+  REQUIRE(!u_max.is_empty());
+  REQUIRE(!i_min.is_empty());
+  REQUIRE(!i_max.is_empty());
+  REQUIRE(u_max.get_signature() == i_neg1.get_signature());
+  REQUIRE(i_min.get_signature() != i_max.get_signature());
+  REQUIRE(i_min.get_signature() != u_max.get_signature());
+}
+
 } /* namespace datasketches */
