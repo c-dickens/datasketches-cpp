@@ -19,7 +19,10 @@
     // or all of the above in one single line:
     uint64_t result2 = XXHash64::hash(mypointer, numBytes, myseed);
 
-    Note: my code is NOT endian-aware !
+    Note: the original code was not endian-aware. Apache DataSketches changed
+    every multi-byte read to an explicit little-endian read (read64 and read32),
+    as the XXH64 specification requires, so the result is the same on every
+    platform. The reads also no longer need aligned input.
 **/
 class XXHash64
 {
@@ -127,12 +130,12 @@ public:
 
     // at least 8 bytes left ? => eat 8 bytes per step
     for (; data + 8 <= stop; data += 8)
-      result = rotateLeft(result ^ processSingle(0, *(uint64_t*)data), 27) * Prime1 + Prime4;
+      result = rotateLeft(result ^ processSingle(0, read64(data)), 27) * Prime1 + Prime4;
 
     // 4 bytes left ? => eat those
     if (data + 4 <= stop)
     {
-      result = rotateLeft(result ^ (*(uint32_t*)data) * Prime1,   23) * Prime2 + Prime3;
+      result = rotateLeft(result ^ read32(data) * Prime1,   23) * Prime2 + Prime3;
       data  += 4;
     }
 
@@ -184,6 +187,22 @@ private:
     return (x << bits) | (x >> (64 - bits));
   }
 
+  /// read 8 bytes as a little-endian value, on any platform and at any alignment
+  static inline uint64_t read64(const unsigned char* p)
+  {
+    return  static_cast<uint64_t>(p[0])        | (static_cast<uint64_t>(p[1]) <<  8) |
+           (static_cast<uint64_t>(p[2]) << 16) | (static_cast<uint64_t>(p[3]) << 24) |
+           (static_cast<uint64_t>(p[4]) << 32) | (static_cast<uint64_t>(p[5]) << 40) |
+           (static_cast<uint64_t>(p[6]) << 48) | (static_cast<uint64_t>(p[7]) << 56);
+  }
+
+  /// read 4 bytes as a little-endian value, on any platform and at any alignment
+  static inline uint64_t read32(const unsigned char* p)
+  {
+    return  static_cast<uint64_t>(p[0])        | (static_cast<uint64_t>(p[1]) <<  8) |
+           (static_cast<uint64_t>(p[2]) << 16) | (static_cast<uint64_t>(p[3]) << 24);
+  }
+
   /// process a single 64 bit value
   static inline uint64_t processSingle(uint64_t previous, uint64_t input)
   {
@@ -193,10 +212,10 @@ private:
   /// process a block of 4x4 bytes, this is the main part of the XXHash32 algorithm
   static inline void process(const void* data, uint64_t& state0, uint64_t& state1, uint64_t& state2, uint64_t& state3)
   {
-    const uint64_t* block = (const uint64_t*) data;
-    state0 = processSingle(state0, block[0]);
-    state1 = processSingle(state1, block[1]);
-    state2 = processSingle(state2, block[2]);
-    state3 = processSingle(state3, block[3]);
+    const unsigned char* block = static_cast<const unsigned char*>(data);
+    state0 = processSingle(state0, read64(block));
+    state1 = processSingle(state1, read64(block + 8));
+    state2 = processSingle(state2, read64(block + 16));
+    state3 = processSingle(state3, read64(block + 24));
   }
 };
