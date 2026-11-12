@@ -54,6 +54,6 @@ From the research note "MinHash slot hashing", k = 128:
 
 * Only XXH64 is needed, which every DataSketches language already has, plus three constants and a 5-line loop. Ports copy the constants exactly.
 * All k values depend on one 64-bit value. Two items whose XXH64 values collide get the same signature. If two items' starting values differ by j·γ (γ being the step constant), their slot values are shifted by j positions. Each happens with probability about 2^−64 per pair (about k·2^−64 for the shift). `minhash/SPEC.md` states this.
-* Like k seeded calls, it has no formal proof of band independence. The band-independence test is the evidence, and it must pass.
+* Like k seeded calls, it has no formal proof of band independence. The band-independence test is the evidence, and it must pass. That test is not in the repository yet: MH-6 (CD-330) adds it, before any LSH code uses the bands.
 * Band keys still use one seeded XXH64 call per band. They do not use SplitMix64.
 * The seed, the seed hash, the item encoding, the 63-bit range, merge and the estimator do not change.
