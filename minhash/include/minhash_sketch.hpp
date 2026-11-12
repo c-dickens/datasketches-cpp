@@ -53,8 +53,8 @@ using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
  * MinHash sketch: a fixed-length signature of a set that supports estimating
  * the Jaccard similarity between sets and locality-sensitive hashing (LSH) banding.
  *
- * The sketch maintains k slots. Each update turns the item into bytes (integers as
- * 8 little-endian bytes), hashes the bytes once with XXH64, and expands that hash
+ * The sketch maintains k slots. Each update turns the item into bytes as theta and
+ * the bloom filter do, hashes the bytes once with XXH64, and expands that hash
  * into one value per slot with the SplitMix64 generator. Each slot keeps the minimum
  * of (value >> 1), so slot values lie in [0, 2^63 - 1]. minhash/SPEC.md gives the
  * exact rules and the test vectors. Two sketches built with the same k and seed are
@@ -245,7 +245,6 @@ private:
 
   minhash_sketch_alloc(uint16_t k, uint64_t seed, const Allocator& allocator);
 
-  void update_le64(uint64_t bits);
   void check_compatible(const minhash_sketch_alloc& other) const;
   uint32_t count_matches(const minhash_sketch_alloc& other) const;
 };

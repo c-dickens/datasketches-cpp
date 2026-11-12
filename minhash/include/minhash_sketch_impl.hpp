@@ -21,7 +21,6 @@
 #define MINHASH_SKETCH_IMPL_HPP_
 
 #include <algorithm>
-#include <array>
 #include <sstream>
 #include <stdexcept>
 
@@ -70,12 +69,14 @@ auto minhash_sketch_alloc<A>::get_allocator() const -> allocator_type {
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(uint64_t value) {
-  update_le64(value);
+  // As in the bloom filter: XXHash64 reads these 8 bytes back as one host-order
+  // word, so the hash depends only on the value and is the same on every platform.
+  update(&value, sizeof(value));
 }
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(int64_t value) {
-  update_le64(static_cast<uint64_t>(value)); // two's complement bits; the conversion is well defined
+  update(&value, sizeof(value)); // see update(uint64_t)
 }
 
 template<typename A>
@@ -138,16 +139,6 @@ void minhash_sketch_alloc<A>::update(const void* data, size_t length) {
     slot = std::min(slot, z >> 1); // 63-bit slot values (ADR-0001)
   }
   is_empty_ = false;
-}
-
-template<typename A>
-void minhash_sketch_alloc<A>::update_le64(uint64_t bits) {
-  // every integer is hashed as 8 little-endian bytes, on every platform
-  std::array<unsigned char, sizeof(bits)> bytes{};
-  for (size_t i = 0; i < bytes.size(); ++i) {
-    bytes[i] = static_cast<unsigned char>(bits >> (8 * i));
-  }
-  update(bytes.data(), bytes.size());
 }
 
 template<typename A>

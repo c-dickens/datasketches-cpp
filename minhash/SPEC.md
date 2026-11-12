@@ -41,13 +41,15 @@ for the same items, k and seed. The test vectors at the end check this.
 
 ## Items become bytes
 
-The rules are the same as in theta, tuple, HLL and CPC. Every multi-byte value
-is written in little-endian order, byte by byte, on every platform.
+The rules are the same as in theta, tuple, HLL, CPC and the bloom filter.
 
 1. An unsigned integer becomes the signed integer of the same width:
    uint32 → int32, uint16 → int16, uint8 → int8. uint64 keeps its 64 bits.
 2. Every integer widens with its sign to int64, and is hashed as the 8
-   little-endian bytes of its two's complement value.
+   little-endian bytes of its two's complement value. The C++ code does this
+   as the bloom filter does: it passes the int64 in memory to `XXHash64::hash`,
+   which reads the 8 bytes back as one word in the same host byte order. So
+   the hash depends only on the value, on every platform.
 3. A float becomes a double. Each double then becomes an int64:
    - 0.0 and −0.0 become 0;
    - every NaN becomes `0x7FF8000000000000` (Java's `Double.doubleToLongBits`);
@@ -75,7 +77,11 @@ for i = 0 … k−1:
 ```
 
 - XXH64 is the standard 64-bit xxHash. The C++ code uses
-  `common/include/xxhash64.h`, which reads its input in little-endian order.
+  `common/include/xxhash64.h` without change. That file reads its input in
+  host byte order. For integers and doubles (rule 2), the result is the same
+  on every platform. For strings and raw bytes, the result on a big-endian
+  platform differs from XXH64. This is the same for every sketch that uses the
+  file, such as the bloom filter.
 - The loop is the reference SplitMix64 generator (Steele, Lea and Flood, 2014;
   Vigna's `splitmix64.c`). From s = 0, its first three outputs are
   `0xE220A8397B1DCDAF`, `0x6E789E6AA1B965F4` and `0x06C45D188009454F`.
