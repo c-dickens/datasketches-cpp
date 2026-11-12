@@ -27,9 +27,13 @@ cd "$(dirname "$0")"
 jobs="${JOBS:-4}"
 
 data/get_20news.sh
+data/get_trajectories.sh
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF > /dev/null
 cmake --build build -j "$jobs" > /dev/null
 
 echo "== 20 Newsgroups: data check =="
 build/news20_stats data/20_newsgroups
+
+echo "== Agent trajectories: featurizer check =="
+build/trajectory_stats data/trajectories_100.jsonl

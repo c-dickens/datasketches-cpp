@@ -46,9 +46,31 @@ add_executable(news20_stats src/news20_stats.cpp)
 target_link_libraries(news20_stats PRIVATE news20)
 target_compile_options(news20_stats PRIVATE ${DEMO_WARNINGS})
 
+# nlohmann/json reads the trajectory JSON lines. CMake fetches one pinned release.
+include(FetchContent)
+if (POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)  # extracted files get the time of extraction
+endif()
+FetchContent_Declare(
+  nlohmann_json
+  URL      https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+  URL_HASH SHA256=d6c65aca6b1ed68e7a182f4757257b107ae403032760ed6ef121c9d55e81757d
+)
+set(JSON_Install OFF CACHE INTERNAL "")
+FetchContent_MakeAvailable(nlohmann_json)
+
+add_library(trajectory STATIC src/featurizer.cpp)
+target_include_directories(trajectory PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(trajectory PUBLIC cxx_std_17)
+target_compile_options(trajectory PRIVATE ${DEMO_WARNINGS})
+target_link_libraries(trajectory PUBLIC nlohmann_json::nlohmann_json)
+
+add_executable(trajectory_stats src/trajectory_stats.cpp)
+target_link_libraries(trajectory_stats PRIVATE trajectory)
+target_compile_options(trajectory_stats PRIVATE ${DEMO_WARNINGS})
+
 include(CTest)
 if (BUILD_TESTING)
-  include(FetchContent)
   FetchContent_Declare(
     Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2
@@ -60,4 +82,9 @@ if (BUILD_TESTING)
   target_link_libraries(news20_test PRIVATE news20 Catch2::Catch2)
   target_compile_options(news20_test PRIVATE ${DEMO_WARNINGS})
   add_test(NAME news20_test COMMAND news20_test)
+
+  add_executable(trajectory_test test/featurizer_test.cpp)
+  target_link_libraries(trajectory_test PRIVATE trajectory Catch2::Catch2)
+  target_compile_options(trajectory_test PRIVATE ${DEMO_WARNINGS})
+  add_test(NAME trajectory_test COMMAND trajectory_test)
 endif()
