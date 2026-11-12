@@ -41,7 +41,9 @@ _*/
 # exceptions
 !__init__.py
 
-docs
+# Doxygen output (Doxyfile OUTPUT_DIRECTORY); the ADRs in docs/adr/ are tracked
+/docs/*
+!/docs/adr/
 # Cross-language test data: sketch snapshots and the datasketches-java checkout used to generate them
 serialization_test_data/
 datasketches-java/

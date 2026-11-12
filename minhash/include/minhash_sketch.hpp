@@ -1,0 +1,295 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+#ifndef MINHASH_SKETCH_HPP_
+#define MINHASH_SKETCH_HPP_
+
+#include <array>
+#include <cmath>
+#include <string>
+#include <vector>
+
+#include "common_defs.hpp"
+
+namespace datasketches {
+
+/// MinHash sketch constants
+namespace minhash_constants {
+  /// default number of hash slots
+  constexpr uint16_t DEFAULT_K = 256;
+  /// slot value of a slot that received no item (INT64_MAX, ADR-0001); the empty flag, not this value, decides emptiness
+  constexpr uint64_t EMPTY_MARKER = 0x7FFFFFFFFFFFFFFFULL;
+  /// SplitMix64 step constant (ADR-0002)
+  constexpr uint64_t SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15ULL;
+  /// SplitMix64 first mixing multiplier (ADR-0002)
+  constexpr uint64_t SPLITMIX64_MIX1 = 0xBF58476D1CE4E5B9ULL;
+  /// SplitMix64 second mixing multiplier (ADR-0002)
+  constexpr uint64_t SPLITMIX64_MIX2 = 0x94D049BB133111EBULL;
+} // namespace minhash_constants
+
+// forward declaration
+template<typename A> class minhash_sketch_alloc;
+
+/// MinHash sketch alias with default allocator
+using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
+
+/**
+ * MinHash sketch: a fixed-length signature of a set that supports estimating
+ * the Jaccard similarity between sets and locality-sensitive hashing (LSH) banding.
+ *
+ * The sketch maintains k slots. Each update turns the item into bytes as theta and
+ * the bloom filter do, hashes the bytes once with XXH64, and expands that hash
+ * into one value per slot with the SplitMix64 generator. Each slot keeps the minimum
+ * of (value >> 1), so slot values lie in [0, 2^63 - 1]. minhash/SPEC.md gives the
+ * exact rules and the test vectors. Two sketches built with the same k and seed are
+ * positionally aligned, and the fraction of equal slots is an estimate of the
+ * Jaccard similarity of the underlying sets.
+ *
+ * Unlike most sketches in this library, k may be any value >= 1, not only a power
+ * of 2. This keeps the lattice of LSH banding configurations (b bands of r rows
+ * requires b * r = k) and their threshold midpoints (1/b)^(1/r) dense.
+ *
+ * The theta sketch also estimates the Jaccard similarity of two sets. This sketch
+ * adds a signature in which slot i of every sketch uses the same hash function, so
+ * LSH banding can find candidate pairs without a comparison of every pair. A theta
+ * sketch keeps the k smallest values of one hash function, so its retained values
+ * do not align by position, and banding does not apply to it.
+ */
+template<typename Allocator = std::allocator<uint64_t>>
+class minhash_sketch_alloc {
+public:
+  using allocator_type = Allocator;
+  using vector_u64 = std::vector<uint64_t, Allocator>;
+
+  class builder;
+
+  minhash_sketch_alloc(const minhash_sketch_alloc&) = default;
+  minhash_sketch_alloc(minhash_sketch_alloc&&) noexcept = default;
+  minhash_sketch_alloc& operator=(const minhash_sketch_alloc&) = default;
+  // not noexcept, as in theta: with an allocator that does not propagate and
+  // compares unequal, the vector copies its elements and can throw
+  minhash_sketch_alloc& operator=(minhash_sketch_alloc&&) = default;
+
+  /// @return true if this sketch has never been updated
+  bool is_empty() const;
+
+  /// @return the number of hash slots k
+  uint32_t get_num_hashes() const;
+
+  /// @return the hash seed
+  uint64_t get_seed() const;
+
+  /// @return the seed hash (16-bit hash of the seed, used for serialization compatibility checks)
+  uint16_t get_seed_hash() const;
+
+  /**
+   * Signature accessor, primarily for LSH banding and testing.
+   * @return the k-slot signature (every slot is the empty marker, INT64_MAX, until the first update)
+   */
+  const vector_u64& get_signature() const;
+
+  /// @return allocator
+  allocator_type get_allocator() const;
+
+  /**
+   * Update this sketch with a given unsigned 64-bit integer.
+   * @param value uint64_t to update the sketch with
+   */
+  void update(uint64_t value);
+
+  /**
+   * Update this sketch with a given signed 64-bit integer.
+   * @param value int64_t to update the sketch with
+   */
+  void update(int64_t value);
+
+  /**
+   * Update this sketch with a given unsigned 32-bit integer.
+   * For compatibility with Java implementation.
+   * @param value uint32_t to update the sketch with
+   */
+  void update(uint32_t value);
+
+  /**
+   * Update this sketch with a given signed 32-bit integer.
+   * For compatibility with Java implementation.
+   * @param value int32_t to update the sketch with
+   */
+  void update(int32_t value);
+
+  /**
+   * Update this sketch with a given unsigned 16-bit integer.
+   * For compatibility with Java implementation.
+   * @param value uint16_t to update the sketch with
+   */
+  void update(uint16_t value);
+
+  /**
+   * Update this sketch with a given signed 16-bit integer.
+   * For compatibility with Java implementation.
+   * @param value int16_t to update the sketch with
+   */
+  void update(int16_t value);
+
+  /**
+   * Update this sketch with a given unsigned 8-bit integer.
+   * For compatibility with Java implementation.
+   * @param value uint8_t to update the sketch with
+   */
+  void update(uint8_t value);
+
+  /**
+   * Update this sketch with a given signed 8-bit integer.
+   * For compatibility with Java implementation.
+   * @param value int8_t to update the sketch with
+   */
+  void update(int8_t value);
+
+  /**
+   * Update this sketch with a given double-precision floating point value.
+   * For compatibility with Java implementation.
+   * Note: this canonicalizes the bit pattern of the double, so update(1.0)
+   * is a different item than update(1).
+   * @param value double to update the sketch with
+   */
+  void update(double value);
+
+  /**
+   * Update this sketch with a given floating point value.
+   * For compatibility with Java implementation.
+   * @param value float to update the sketch with
+   */
+  void update(float value);
+
+  /**
+   * Update this sketch with a given string.
+   * An empty string is ignored.
+   * @param value string to update the sketch with
+   */
+  void update(const std::string& value);
+
+  /**
+   * Update this sketch with given data of any type.
+   * This is a "universal" update that covers all cases above,
+   * but may produce different hashes.
+   * Be very careful to hash input values consistently using the same approach
+   * both over time and on different platforms.
+   * @param data pointer to the data
+   * @param length of the data in bytes
+   */
+  void update(const void* data, size_t length);
+
+  /**
+   * Merge the given sketch into this one (elementwise minimum of signatures).
+   * The result is exactly the sketch that would have been built from the
+   * union of the two input streams.
+   * @param other sketch to merge into this one
+   * @throws std::invalid_argument if k or seed do not match
+   */
+  void merge(const minhash_sketch_alloc& other);
+
+  /**
+   * Estimate of the Jaccard similarity between the set represented by this
+   * sketch and the set represented by the given sketch (the fraction of
+   * equal signature slots).
+   * If both sketches are empty the estimate is 1 (equal empty sets);
+   * if exactly one is empty the estimate is 0.
+   * @param other sketch to compare this one with
+   * @return estimated Jaccard similarity in [0, 1]
+   * @throws std::invalid_argument if k or seed do not match
+   */
+  double jaccard(const minhash_sketch_alloc& other) const;
+
+  /**
+   * {lower bound, estimate, upper bound} of the Jaccard similarity between the
+   * sets represented by this sketch and the given sketch, using approximate
+   * Clopper-Pearson confidence bounds on the slot-match proportion.
+   * Note: all k slot values of an item come from one 64-bit hash, so the k
+   * slot-match indicators are not proven independent, and the coverage of these
+   * bounds is approximate rather than exact.
+   * If both sketches are empty the result is {1, 1, 1};
+   * if exactly one is empty the result is {0, 0, 0}.
+   * @param other sketch to compare this one with
+   * @param num_std_devs number of standard deviations defining the confidence interval: 1, 2 or 3
+   * @return array of {lower bound, estimate, upper bound}
+   * @throws std::invalid_argument if num_std_devs is not 1, 2 or 3, or if k or seed do not match
+   */
+  std::array<double, 3> jaccard_bounds(const minhash_sketch_alloc& other, uint8_t num_std_devs = 2) const;
+
+  /**
+   * Prints a summary of the sketch.
+   * @return the summary as a string
+   */
+  string<Allocator> to_string() const;
+
+private:
+  bool is_empty_ = true;
+  uint64_t seed_;
+  vector_u64 signature_;
+
+  minhash_sketch_alloc(uint16_t k, uint64_t seed, const Allocator& allocator);
+
+  void check_compatible(const minhash_sketch_alloc& other) const;
+  uint32_t count_matches(const minhash_sketch_alloc& other) const;
+};
+
+/// MinHash sketch builder
+template<typename Allocator>
+class minhash_sketch_alloc<Allocator>::builder {
+public:
+  /**
+   * Creates and instance of the builder with default parameters.
+   * @param allocator instance of an Allocator to pass to created sketches
+   */
+  explicit builder(const Allocator& allocator = Allocator()); // NOLINT(modernize-pass-by-value): same signature as the theta builders
+
+  /**
+   * Sets the number of hash slots k. Any value >= 1 is valid (k does not
+   * have to be a power of 2). The default is 256.
+   * @param k number of hash slots
+   * @return this builder
+   * @throws std::invalid_argument if k is zero
+   */
+  builder& set_k(uint16_t k);
+
+  /**
+   * Sets the seed for the hash function.
+   * Sketches must have the same seed to be compared or merged.
+   * @param seed hash seed
+   * @return this builder
+   */
+  builder& set_seed(uint64_t seed);
+
+  /**
+   * Creates a sketch with the current configuration of the builder.
+   * @return a MinHash sketch
+   */
+  minhash_sketch_alloc build() const;
+
+private:
+  uint16_t k_;
+  uint64_t seed_;
+  Allocator allocator_;
+};
+
+} /* namespace datasketches */
+
+#include "minhash_sketch_impl.hpp"
+
+#endif
