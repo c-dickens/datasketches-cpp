@@ -21,20 +21,21 @@
 #define MINHASH_SKETCH_IMPL_HPP_
 
 #include <algorithm>
-#include <limits>
+#include <array>
 #include <sstream>
 #include <stdexcept>
 
-#include "MurmurHash3.h"
+#include "MurmurHash3.h" // only for compute_seed_hash(), which every sketch shares; slots use XXH64
 #include "bounds_binomial_proportions.hpp"
 #include "canonical_double.hpp"
+#include "xxhash64.h"
 
 namespace datasketches {
 
 template<typename A>
 minhash_sketch_alloc<A>::minhash_sketch_alloc(uint16_t k, uint64_t seed, const A& allocator):
 seed_(seed),
-signature_(k, std::numeric_limits<uint64_t>::max(), allocator)
+signature_(k, minhash_constants::EMPTY_MARKER, allocator)
 {}
 
 template<typename A>
@@ -69,12 +70,12 @@ auto minhash_sketch_alloc<A>::get_allocator() const -> allocator_type {
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(uint64_t value) {
-  update(&value, sizeof(value));
+  update_le64(value);
 }
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(int64_t value) {
-  update(&value, sizeof(value));
+  update_le64(static_cast<uint64_t>(value)); // two's complement bits; the conversion is well defined
 }
 
 template<typename A>
@@ -125,17 +126,28 @@ void minhash_sketch_alloc<A>::update(const std::string& value) {
 
 template<typename A>
 void minhash_sketch_alloc<A>::update(const void* data, size_t length) {
-  HashState hashes;
-  MurmurHash3_x64_128(data, length, seed_, hashes);
-  // Kirsch-Mitzenmacher double hashing: slot value g_i = h1 + i * (h2 | 1).
-  // The odd increment makes the k slot values distinct; unsigned wrapping is intended.
-  const uint64_t increment = hashes.h2 | 1;
-  uint64_t value = hashes.h1;
+  // One XXH64 hash per item, then one SplitMix64 output per slot (ADR-0002, SPEC.md).
+  // All arithmetic is unsigned 64-bit and wraps; every shift is logical.
+  uint64_t state = XXHash64::hash(data, length, seed_);
   for (uint64_t& slot: signature_) {
-    slot = std::min(slot, value);
-    value += increment;
+    state += minhash_constants::SPLITMIX64_GAMMA;
+    uint64_t z = state;
+    z = (z ^ (z >> 30)) * minhash_constants::SPLITMIX64_MIX1;
+    z = (z ^ (z >> 27)) * minhash_constants::SPLITMIX64_MIX2;
+    z ^= z >> 31;
+    slot = std::min(slot, z >> 1); // 63-bit slot values (ADR-0001)
   }
   is_empty_ = false;
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::update_le64(uint64_t bits) {
+  // every integer is hashed as 8 little-endian bytes, on every platform
+  std::array<unsigned char, sizeof(bits)> bytes{};
+  for (size_t i = 0; i < bytes.size(); ++i) {
+    bytes[i] = static_cast<unsigned char>(bits >> (8 * i));
+  }
+  update(bytes.data(), bytes.size());
 }
 
 template<typename A>

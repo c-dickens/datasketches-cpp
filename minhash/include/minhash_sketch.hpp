@@ -33,7 +33,15 @@ namespace datasketches {
 namespace minhash_constants {
   /// default number of hash slots
   constexpr uint16_t DEFAULT_K = 256;
-}
+  /// slot value of a slot that received no item (INT64_MAX, ADR-0001); the empty flag, not this value, decides emptiness
+  constexpr uint64_t EMPTY_MARKER = 0x7FFFFFFFFFFFFFFFULL;
+  /// SplitMix64 step constant (ADR-0002)
+  constexpr uint64_t SPLITMIX64_GAMMA = 0x9E3779B97F4A7C15ULL;
+  /// SplitMix64 first mixing multiplier (ADR-0002)
+  constexpr uint64_t SPLITMIX64_MIX1 = 0xBF58476D1CE4E5B9ULL;
+  /// SplitMix64 second mixing multiplier (ADR-0002)
+  constexpr uint64_t SPLITMIX64_MIX2 = 0x94D049BB133111EBULL;
+} // namespace minhash_constants
 
 // forward declaration
 template<typename A> class minhash_sketch_alloc;
@@ -45,23 +53,17 @@ using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
  * MinHash sketch: a fixed-length signature of a set that supports estimating
  * the Jaccard similarity between sets and locality-sensitive hashing (LSH) banding.
  *
- * The sketch maintains k slots. Each update hashes the item once with MurmurHash3
- * and derives one value per slot as g_i = h1 + i * (h2 | 1) with wrapping arithmetic
- * (Kirsch-Mitzenmacher double hashing); each slot retains the minimum value seen.
- * Two sketches built with the same k and seed are positionally aligned, and the
- * fraction of equal slots is an estimate of the Jaccard similarity of the
- * underlying sets.
+ * The sketch maintains k slots. Each update turns the item into bytes (integers as
+ * 8 little-endian bytes), hashes the bytes once with XXH64, and expands that hash
+ * into one value per slot with the SplitMix64 generator. Each slot keeps the minimum
+ * of (value >> 1), so slot values lie in [0, 2^63 - 1]. minhash/SPEC.md gives the
+ * exact rules and the test vectors. Two sketches built with the same k and seed are
+ * positionally aligned, and the fraction of equal slots is an estimate of the
+ * Jaccard similarity of the underlying sets.
  *
  * Unlike most sketches in this library, k may be any value >= 1, not only a power
  * of 2. This keeps the lattice of LSH banding configurations (b bands of r rows
  * requires b * r = k) and their threshold midpoints (1/b)^(1/r) dense.
- *
- * Each slot taken alone is an unbiased MinHash, and the slot-match count has close
- * to binomial variance. But the double hashing above makes the slots dependent in
- * groups of three or more: g_{i+2} = 2 * g_{i+1} - g_i for every item. A band of r
- * slots from two dissimilar sets therefore collides more often than J^r, mainly
- * for small sets. Do not use the signature for LSH banding until the slot hashing
- * is replaced with independent slots.
  *
  * The theta sketch also estimates the Jaccard similarity of two sets. This sketch
  * adds a signature in which slot i of every sketch uses the same hash function, so
@@ -98,8 +100,7 @@ public:
 
   /**
    * Signature accessor, primarily for LSH banding and testing.
-   * See the class comment: the current slots are not yet fit for LSH banding.
-   * @return the k-slot signature (every slot is UINT64_MAX until the first update)
+   * @return the k-slot signature (every slot is the empty marker, INT64_MAX, until the first update)
    */
   const vector_u64& get_signature() const;
 
@@ -219,9 +220,9 @@ public:
    * {lower bound, estimate, upper bound} of the Jaccard similarity between the
    * sets represented by this sketch and the given sketch, using approximate
    * Clopper-Pearson confidence bounds on the slot-match proportion.
-   * Note: the k slot-match indicators are not fully independent under
-   * Kirsch-Mitzenmacher slot derivation, so the coverage of these bounds is
-   * approximate rather than exact.
+   * Note: all k slot values of an item come from one 64-bit hash, so the k
+   * slot-match indicators are not proven independent, and the coverage of these
+   * bounds is approximate rather than exact.
    * If both sketches are empty the result is {1, 1, 1};
    * if exactly one is empty the result is {0, 0, 0}.
    * @param other sketch to compare this one with
@@ -244,6 +245,7 @@ private:
 
   minhash_sketch_alloc(uint16_t k, uint64_t seed, const Allocator& allocator);
 
+  void update_le64(uint64_t bits);
   void check_compatible(const minhash_sketch_alloc& other) const;
   uint32_t count_matches(const minhash_sketch_alloc& other) const;
 };

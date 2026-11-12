@@ -34,7 +34,7 @@ TEST_CASE("minhash sketch: empty", "[minhash_sketch]") {
   REQUIRE(sketch.get_seed() == DEFAULT_SEED);
   REQUIRE(sketch.get_signature().size() == minhash_constants::DEFAULT_K);
   for (const uint64_t slot: sketch.get_signature()) {
-    REQUIRE(slot == std::numeric_limits<uint64_t>::max());
+    REQUIRE(slot == static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
   }
 
   // two empty sketches represent equal (empty) sets
@@ -67,7 +67,7 @@ TEST_CASE("minhash sketch: update populates every slot", "[minhash_sketch]") {
   auto sketch = minhash_sketch::builder().set_k(1024).build();
   sketch.update(static_cast<uint64_t>(42));
   for (const uint64_t slot: sketch.get_signature()) {
-    REQUIRE(slot != std::numeric_limits<uint64_t>::max());
+    REQUIRE(slot != static_cast<uint64_t>(std::numeric_limits<int64_t>::max()));
   }
 }
 
@@ -104,8 +104,8 @@ TEST_CASE("minhash sketch: disjoint streams", "[minhash_sketch][minhash][stats]"
   for (uint64_t i = 0; i < 10000; ++i) { sketch_a.update(i); }
   for (uint64_t i = 10000; i < 20000; ++i) { sketch_b.update(i); }
   // True J = 0, so matches ~ Binomial(k, 0) and SD = 0: a slot can match only if
-  // two different items give the same 64-bit slot value. By the union bound,
-  // P(any match) <= k * |A| * |B| / 2^64 = 1024 * 10^8 / 2^64 < 6e-9.
+  // two different items give the same 63-bit slot value. By the union bound,
+  // P(any match) <= k * |A| * |B| / 2^63 = 1024 * 10^8 / 2^63 < 2e-8.
   REQUIRE(sketch_a.jaccard(sketch_b) == 0.0);
 
   // Bounds at matches == 0: the lower bound and the estimate are 0. The upper
@@ -405,7 +405,10 @@ TEST_CASE("minhash sketch: maximum values", "[minhash_sketch]") {
   big.update(static_cast<uint64_t>(1));
   REQUIRE(big.jaccard(big) == 1.0);
   const auto& signature = big.get_signature();
-  REQUIRE(std::count(signature.begin(), signature.end(), std::numeric_limits<uint64_t>::max()) == 0);
+  // every slot received a value, and every slot value has 63 bits
+  const auto empty_marker = static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+  REQUIRE(std::count(signature.begin(), signature.end(), empty_marker) == 0);
+  REQUIRE(std::all_of(signature.begin(), signature.end(), [](uint64_t v) { return v <= (UINT64_C(1) << 63) - 1; }));
 
   // extreme items: UINT64_MAX has the same 8 bytes as int64 -1, so it is the same item
   auto make = [] { return minhash_sketch::builder().set_k(64).build(); };
