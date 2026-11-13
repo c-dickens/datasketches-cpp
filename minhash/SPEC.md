@@ -110,8 +110,9 @@ All k slot values of an item come from one 64-bit value s. So:
 
 Neither case has a material effect on the estimate. There is no formal proof
 that the slots of a band are independent. The band-independence test is the
-evidence. That test is not in this repository yet: MH-6 (CD-330) adds it, and
-it must pass before any LSH code uses the bands.
+evidence. That test is "minhash sketch stats: band collision rate" in
+`minhash/test/minhash_sketch_stats_test.cpp`, and it must pass before any LSH
+code uses the bands.
 
 ## Merge
 
