@@ -21,6 +21,8 @@
 #include <catch2/catch.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <set>
 #include <stdexcept>
@@ -38,7 +40,7 @@ namespace {
 using pair_list = std::vector<std::pair<std::size_t, std::size_t>>;
 
 // A pair at exact J with the given error. Its bounds cover J when `covered` is true.
-demo::pair_estimate make_pair(double j, double error, bool covered = true) {
+demo::pair_estimate hand_pair(double j, double error, bool covered = true) {
   const double est = j + error;
   const std::array<double, 3> hit{j - 0.5, est, j + 0.5};
   const std::array<double, 3> miss{j + 0.25, est, j + 0.5};
@@ -49,7 +51,7 @@ demo::pair_estimate make_pair(double j, double error, bool covered = true) {
 std::vector<demo::pair_estimate> symmetric_pairs(std::size_t n, double e) {
   std::vector<demo::pair_estimate> pairs;
   for (std::size_t i = 0; i < n; ++i) {
-    pairs.push_back(make_pair(0.5, i % 2 == 0 ? e : -e));
+    pairs.push_back(hand_pair(0.5, i % 2 == 0 ? e : -e));
   }
   return pairs;
 }
@@ -156,8 +158,8 @@ TEST_CASE("summarise_bins computes bias, spread and coverage per bin", "[demo]")
 
   SECTION("pairs at J = 0 and J = 1 are left out") {
     auto pairs = symmetric_pairs(1000, 0.0625);
-    pairs.push_back(make_pair(0.0, 0.3));
-    pairs.push_back(make_pair(1.0, -0.3));
+    pairs.push_back(hand_pair(0.0, 0.3));
+    pairs.push_back(hand_pair(1.0, -0.3));
     const auto with_ends = demo::summarise_bins(pairs, 64);
     REQUIRE(with_ends[0].pairs == 0);
     REQUIRE(with_ends[9].pairs == 0);
@@ -165,10 +167,11 @@ TEST_CASE("summarise_bins computes bias, spread and coverage per bin", "[demo]")
   }
 
   SECTION("coverage: 950 of 1,000 covered is 0.95 >= 0.9445 PASS; 940 is 0.94 < 0.9445 FAIL") {
-    for (const std::size_t covered : {950, 940}) {
+    const std::array<std::size_t, 2> covered_counts{950, 940};
+    for (const std::size_t covered : covered_counts) {
       std::vector<demo::pair_estimate> pairs;
       for (std::size_t i = 0; i < 1000; ++i) {
-        pairs.push_back(make_pair(0.5, i % 2 == 0 ? 0.0625 : -0.0625, i < covered));
+        pairs.push_back(hand_pair(0.5, i % 2 == 0 ? 0.0625 : -0.0625, i < covered));
       }
       const auto c = demo::summarise_bins(pairs, 64)[5];
       REQUIRE(c.coverage2 == Approx(static_cast<double>(covered) / 1000.0));
@@ -180,7 +183,7 @@ TEST_CASE("summarise_bins computes bias, spread and coverage per bin", "[demo]")
 
 TEST_CASE("bins_table has a header, a separator and one row per bin", "[demo]") {
   const auto table = demo::bins_table(demo::summarise_bins(symmetric_pairs(1000, 0.0625), 64));
-  REQUIRE(std::count(table.begin(), table.end(), '\n') == 2 + static_cast<long>(demo::NUM_BINS));
+  REQUIRE(std::count(table.begin(), table.end(), '\n') == 2 + static_cast<std::ptrdiff_t>(demo::NUM_BINS));
   // The SD ratio is sqrt(1000 / 999) = 1.0005, which rounds to 1.001.
   REQUIRE(table.find("| [0.5, 0.6) | 1000 | 0.00000 | 0.06253 | 0.06250 | 1.001 | 1.0000 | 1.0000 "
                      "| PASS | PASS | PASS | PASS |") != std::string::npos);
