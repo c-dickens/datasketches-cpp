@@ -36,6 +36,27 @@
 
 namespace {
 
+// The results file is committed, so it starts with the ASF licence header, as tools/rat-check.sh requires.
+const char* const LICENCE_HEADER =
+    "<!--\n"
+    "Licensed to the Apache Software Foundation (ASF) under one\n"
+    "or more contributor license agreements.  See the NOTICE file\n"
+    "distributed with this work for additional information\n"
+    "regarding copyright ownership.  The ASF licenses this file\n"
+    "to you under the Apache License, Version 2.0 (the\n"
+    "\"License\"); you may not use this file except in compliance\n"
+    "with the License.  You may obtain a copy of the License at\n"
+    "\n"
+    "  http://www.apache.org/licenses/LICENSE-2.0\n"
+    "\n"
+    "Unless required by applicable law or agreed to in writing,\n"
+    "software distributed under the License is distributed on an\n"
+    "\"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\n"
+    "KIND, either express or implied.  See the License for the\n"
+    "specific language governing permissions and limitations\n"
+    "under the License.\n"
+    "-->\n\n";
+
 using sketch = datasketches::minhash_sketch;
 using shingle_set = std::vector<std::string>;
 
@@ -83,6 +104,7 @@ int run(const std::string& data_dir, const std::string& out_path) {
   }
 
   std::ostringstream md;
+  md << LICENCE_HEADER;
   md << "# MinHash correctness on 20 Newsgroups\n\n";
   md << "Written by `build/minhash_20news` (`./run_demos.sh`). The ticket is MH-8.\n\n";
   md << "## Pairs\n\n";
