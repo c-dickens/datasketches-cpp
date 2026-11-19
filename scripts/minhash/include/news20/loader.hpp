@@ -39,6 +39,7 @@ constexpr std::size_t SHINGLE_WORDS = 5;
 struct post {
   std::string group;  ///< the newsgroup, which is the directory name
   std::string id;     ///< the file name inside the newsgroup directory
+  std::string message_id;  ///< the value of the Message-ID header, or empty if the post has none
   std::string body;   ///< the text after the header block
 };
 
@@ -46,6 +47,12 @@ struct post {
 /// A line that holds only "\r" counts as blank.
 /// If the text has no blank line, all of it is header, and the result is empty.
 std::string strip_header(const std::string& text);
+
+/// The value of the first "Message-ID" line of the header block (the text before
+/// the first blank line, as in strip_header). The name is compared without ASCII
+/// case. Leading and trailing space, tab and "\r" are removed from the value.
+/// Returns an empty string if the header block has no such line.
+std::string message_id(const std::string& text);
 
 /// Converts ASCII letters to lower case, and splits on every byte that is not
 /// an ASCII letter or digit. Empty words are dropped.

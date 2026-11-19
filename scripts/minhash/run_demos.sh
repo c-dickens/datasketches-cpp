@@ -33,3 +33,7 @@ cmake --build build -j "$jobs" > /dev/null
 
 echo "== 20 Newsgroups: data check =="
 build/news20_stats data/20_newsgroups
+
+echo "== 20 Newsgroups: MinHash correctness =="
+mkdir -p results
+build/minhash_20news data/20_newsgroups results/minhash_20news.md

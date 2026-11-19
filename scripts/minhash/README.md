@@ -97,6 +97,37 @@ object per trajectory of those task instances:
     or `null`;
   - `out` is the message content, cut to 1,000 characters.
 
+## MinHash correctness on 20 Newsgroups
+
+```bash
+build/minhash_20news data/20_newsgroups results/minhash_20news.md
+```
+
+`./run_demos.sh` runs this demo. It checks the sketch's Jaccard estimates
+against the exact values, and that merging is exact. It writes
+`results/minhash_20news.md`, which is committed, with each criterion marked
+PASS or FAIL and the last line `Overall: PASS` or `Overall: FAIL`. The file
+holds no time, date or host name, so a second run gives the same file.
+
+**Pairs.** All pairs of a fixed sample of 2,000 posts (about 2M pairs), plus
+all pairs of posts that share a `Message-ID` header (cross-posts). The sample
+is the 2,000 post indices with the smallest `XXHash64` of the index, seed 1.
+
+**Accuracy.** For k = 64, 128, 256 and 512, each pair gets its exact J and its
+estimate. The pairs go into J bins of width 0.1. Pairs with exact J = 0 or
+J = 1 are left out, because the estimate has no variance there. Each bin with
+at least 1,000 pairs is checked:
+
+- the mean bias of (estimate − exact) is at most 0.01;
+- the observed SD of (estimate − exact) is within ±15% of
+  √(mean of J(1−J) over the bin / k);
+- `jaccard_bounds()` at 2 and 3 SD covers the exact J at least as often as
+  95.45% and 99.73% minus 1 point.
+
+**Merge.** Each post's sorted shingle set is split into 4 consecutive pieces.
+The merge of the 4 piece sketches must equal the sketch of the whole set, for
+every post and every k.
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
