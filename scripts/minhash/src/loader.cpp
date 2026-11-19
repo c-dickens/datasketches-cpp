@@ -53,6 +53,25 @@ bool is_hidden(const std::filesystem::path& path) {
   return !name.empty() && name[0] == '.';
 }
 
+bool is_blank_line(const std::string& text, std::size_t start, std::size_t end) {
+  const std::size_t length = end - start;
+  return length == 0 || (length == 1 && text[start] == '\r');
+}
+
+bool equals_ignore_case(const std::string& text, std::size_t start, std::size_t length, const char* name) {
+  std::size_t i = 0;
+  for (; i < length && name[i] != '\0'; ++i) {
+    if (ascii_lower(static_cast<unsigned char>(text[start + i])) != ascii_lower(static_cast<unsigned char>(name[i]))) {
+      return false;
+    }
+  }
+  return i == length && name[i] == '\0';
+}
+
+bool is_trimmed(char c) {
+  return c == ' ' || c == '\t' || c == '\r';
+}
+
 } // namespace
 
 std::string strip_header(const std::string& text) {
@@ -62,9 +81,34 @@ std::string strip_header(const std::string& text) {
     if (line_end == std::string::npos) {
       break;  // the last line has no newline, so it is not blank
     }
-    const std::size_t length = line_end - line_start;
-    if (length == 0 || (length == 1 && text[line_start] == '\r')) {
+    if (is_blank_line(text, line_start, line_end)) {
       return text.substr(line_end + 1);
+    }
+    line_start = line_end + 1;
+  }
+  return {};
+}
+
+std::string message_id(const std::string& text) {
+  std::size_t line_start = 0;
+  while (line_start < text.size()) {
+    std::size_t line_end = text.find('\n', line_start);
+    if (line_end == std::string::npos) {
+      line_end = text.size();  // a last line with no newline is still part of the header
+    } else if (is_blank_line(text, line_start, line_end)) {
+      return {};  // the end of the header block
+    }
+    const std::size_t colon = text.find(':', line_start);
+    if (colon < line_end && equals_ignore_case(text, line_start, colon - line_start, "message-id")) {
+      std::size_t first = colon + 1;
+      std::size_t last = line_end;
+      while (first < last && is_trimmed(text[first])) {
+        ++first;
+      }
+      while (last > first && is_trimmed(text[last - 1])) {
+        --last;
+      }
+      return text.substr(first, last - first);
     }
     line_start = line_end + 1;
   }
@@ -159,7 +203,8 @@ std::vector<post> load_posts(const std::filesystem::path& root) {
     }
     std::sort(files.begin(), files.end());
     for (const auto& file : files) {
-      posts.push_back(post{group.filename().string(), file.filename().string(), strip_header(read_file(file))});
+      const std::string text = read_file(file);
+      posts.push_back(post{group.filename().string(), file.filename().string(), message_id(text), strip_header(text)});
     }
   }
   return posts;

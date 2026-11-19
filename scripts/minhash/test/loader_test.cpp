@@ -39,6 +39,7 @@ const char* const POST_A =
     "Xref: cantaloupe.srv.cs.cmu.edu alt.atheism:51060 sci.space:61000\n"
     "Newsgroups: alt.atheism,sci.space\n"
     "Subject: Re: Launch window\n"
+    "Message-ID: <launch.1@example.org>\n"
     "\n"
     "The launch window opens at dawn, and the crew is ready.\n";
 
@@ -47,6 +48,7 @@ const char* const POST_A_CROSSPOST =
     "Xref: cantaloupe.srv.cs.cmu.edu sci.space:61000 alt.atheism:51060\n"
     "Newsgroups: sci.space,alt.atheism\n"
     "Path: cantaloupe.srv.cs.cmu.edu!other\n"
+    "Message-ID: <launch.1@example.org>\n"
     "\n"
     "The launch window opens at dawn, and the crew is ready.\n";
 
@@ -87,6 +89,29 @@ TEST_CASE("strip_header drops everything before the first blank line", "[loader]
   REQUIRE(news20::strip_header("A: 1\nB: 2\n").empty());         // no blank line: all header
   REQUIRE(news20::strip_header("A: 1\n\n").empty());             // header with an empty body
   REQUIRE(news20::strip_header("").empty());
+}
+
+TEST_CASE("message_id returns the trimmed value of the Message-ID header line", "[loader]") {
+  REQUIRE(news20::message_id("From: a\nMessage-ID: <x@y>\n\nbody\n") == "<x@y>");
+  // The name match ignores case.
+  REQUIRE(news20::message_id("message-id: <x@y>\n\n") == "<x@y>");
+  REQUIRE(news20::message_id("MESSAGE-ID:<x@y>\n\n") == "<x@y>");
+  // Space, tab and \r are removed from both ends of the value.
+  REQUIRE(news20::message_id("Message-ID: \t <x@y> \t\r\nSubject: s\r\n\r\nbody\r\n") == "<x@y>");
+  // The first matching line wins.
+  REQUIRE(news20::message_id("Message-ID: <1>\nMessage-ID: <2>\n\n") == "<1>");
+  // A header that is the whole text, with no blank line and no final newline.
+  REQUIRE(news20::message_id("Subject: s\nMessage-ID: <x@y>") == "<x@y>");
+}
+
+TEST_CASE("message_id is empty when the header block has no Message-ID line", "[loader]") {
+  REQUIRE(news20::message_id("From: a\nSubject: s\n\nbody\n").empty());
+  // A Message-ID line in the body is not part of the header.
+  REQUIRE(news20::message_id("From: a\n\nMessage-ID: <in-body>\n").empty());
+  REQUIRE(news20::message_id("From: a\r\n\r\nMessage-ID: <in-body>\r\n").empty());
+  // A longer or shorter name does not match.
+  REQUIRE(news20::message_id("X-Message-ID: <x>\nMessage-IDs: <y>\nMessage: <z>\n\n").empty());
+  REQUIRE(news20::message_id("").empty());
 }
 
 TEST_CASE("tokenize lowers ASCII and splits on non-alphanumeric bytes", "[loader]") {
@@ -145,6 +170,11 @@ TEST_CASE("load_posts reads groups and posts in sorted order", "[loader]") {
   REQUIRE(posts[1].id == "51060");
   REQUIRE(posts[2].group == "sci.space");
   REQUIRE(posts[2].id == "61000");
+
+  // load_posts sets message_id from the header. The cross-posted copy shares it.
+  REQUIRE(posts[0].message_id.empty());
+  REQUIRE(posts[1].message_id == "<launch.1@example.org>");
+  REQUIRE(posts[2].message_id == "<launch.1@example.org>");
 
   // A cross-posted copy has the same body, so its shingle sets are identical.
   const auto a = news20::shingle_text(posts[1].body);
