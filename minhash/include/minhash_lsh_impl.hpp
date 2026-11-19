@@ -39,7 +39,7 @@ bands_(num_bands, bucket_map(0, std::hash<uint64_t>(), std::equal_to<uint64_t>()
 sketches_(0, std::hash<uint64_t>(), std::equal_to<uint64_t>(),
     typename sketch_map::allocator_type(allocator))
 {
-  if (num_bands == 0) throw std::invalid_argument("num_bands must be at least 1");
+  if (num_bands == 0) { throw std::invalid_argument("num_bands must be at least 1"); }
   // the negated comparison also rejects NaN
   if (!(jaccard_threshold > 0.0) || jaccard_threshold > 1.0) {
     throw std::invalid_argument("jaccard_threshold must be in (0, 1]");
@@ -48,7 +48,7 @@ sketches_(0, std::hash<uint64_t>(), std::equal_to<uint64_t>(),
 
 template<typename A>
 auto minhash_lsh_index_alloc<A>::band_keys(const sketch_type& sketch, uint16_t num_bands) -> vector_u64 {
-  if (num_bands == 0) throw std::invalid_argument("num_bands must be at least 1");
+  if (num_bands == 0) { throw std::invalid_argument("num_bands must be at least 1"); }
   const uint32_t k = sketch.get_num_hashes();
   if (num_bands > k) {
     throw std::invalid_argument("num_bands " + std::to_string(num_bands)
@@ -58,7 +58,7 @@ auto minhash_lsh_index_alloc<A>::band_keys(const sketch_type& sketch, uint16_t n
     throw std::invalid_argument("num_bands " + std::to_string(num_bands)
         + " must divide k " + std::to_string(k) + " evenly");
   }
-  if (sketch.is_empty()) throw std::invalid_argument("cannot compute band keys of an empty sketch");
+  if (sketch.is_empty()) { throw std::invalid_argument("cannot compute band keys of an empty sketch"); }
   const uint32_t rows = k / num_bands;
   vector_u64 keys(sketch.get_signature().get_allocator());
   keys.reserve(num_bands);
@@ -107,19 +107,19 @@ auto minhash_lsh_index_alloc<A>::get_duplicate_clusters() const -> vector_of_clu
   // sorted ids give deterministic cluster contents and ordering
   vector_u64 ids(allocator_);
   ids.reserve(sketches_.size());
-  for (const auto& entry: sketches_) ids.push_back(entry.first);
+  for (const auto& entry: sketches_) { ids.push_back(entry.first); }
   std::sort(ids.begin(), ids.end());
 
   using index_map = std::unordered_map<uint64_t, size_t, std::hash<uint64_t>,
       std::equal_to<uint64_t>, rebind_alloc<std::pair<const uint64_t, size_t>>>;
   index_map index_of(0, std::hash<uint64_t>(), std::equal_to<uint64_t>(),
       typename index_map::allocator_type(allocator_));
-  for (size_t i = 0; i < ids.size(); ++i) index_of.emplace(ids[i], i);
+  for (size_t i = 0; i < ids.size(); ++i) { index_of.emplace(ids[i], i); }
 
   // union-find with path halving and union by size
   std::vector<size_t, rebind_alloc<size_t>> parent(ids.size(), 0, rebind_alloc<size_t>(allocator_));
   std::vector<size_t, rebind_alloc<size_t>> set_size(ids.size(), 1, rebind_alloc<size_t>(allocator_));
-  for (size_t i = 0; i < parent.size(); ++i) parent[i] = i;
+  for (size_t i = 0; i < parent.size(); ++i) { parent[i] = i; }
   auto find = [&parent](size_t x) {
     while (parent[x] != x) {
       parent[x] = parent[parent[x]];
@@ -137,9 +137,9 @@ auto minhash_lsh_index_alloc<A>::get_duplicate_clusters() const -> vector_of_clu
         for (size_t j = i + 1; j < members.size(); ++j) {
           size_t root_a = find(index_of.at(members[i]));
           size_t root_b = find(index_of.at(members[j]));
-          if (root_a == root_b) continue; // already linked, skip re-verification
+          if (root_a == root_b) { continue; } // already linked, skip re-verification
           if (sketches_.at(members[i]).jaccard(sketches_.at(members[j])) >= threshold_) {
-            if (set_size[root_a] < set_size[root_b]) std::swap(root_a, root_b);
+            if (set_size[root_a] < set_size[root_b]) { std::swap(root_a, root_b); }
             parent[root_b] = root_a;
             set_size[root_a] += set_size[root_b];
           }
@@ -156,9 +156,9 @@ auto minhash_lsh_index_alloc<A>::get_duplicate_clusters() const -> vector_of_clu
       typename root_map::allocator_type(allocator_));
   for (size_t i = 0; i < ids.size(); ++i) {
     const size_t root = find(i);
-    if (set_size[root] < 2) continue; // no verified duplicates
+    if (set_size[root] < 2) { continue; } // no verified duplicates
     auto result = cluster_of_root.emplace(root, clusters.size());
-    if (result.second) clusters.push_back(vector_u64(allocator_));
+    if (result.second) { clusters.push_back(vector_u64(allocator_)); }
     clusters[result.first->second].push_back(ids[i]);
   }
   return clusters;
@@ -171,7 +171,7 @@ size_t minhash_lsh_index_alloc<A>::get_num_documents() const {
 
 template<typename A>
 void minhash_lsh_index_alloc<A>::check_compatible(const sketch_type& sketch) const {
-  if (sketches_.empty()) return;
+  if (sketches_.empty()) { return; }
   const auto& first = sketches_.begin()->second;
   if (sketch.get_num_hashes() != first.get_num_hashes() || sketch.get_seed() != first.get_seed()) {
     throw std::invalid_argument("sketch is incompatible with the index: k and seed must match earlier adds");

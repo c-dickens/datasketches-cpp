@@ -29,7 +29,7 @@ namespace datasketches {
 static minhash_sketch make_sketch(uint64_t from, uint64_t to, uint16_t k = 112,
     uint64_t seed = DEFAULT_SEED) {
   auto sketch = minhash_sketch::builder().set_k(k).set_seed(seed).build();
-  for (uint64_t i = from; i < to; ++i) sketch.update(i);
+  for (uint64_t i = from; i < to; ++i) { sketch.update(i); }
   return sketch;
 }
 
@@ -127,8 +127,8 @@ TEST_CASE("minhash lsh: s-curve statistics at 14 bands x 8 rows", "[minhash][sta
     const uint64_t seed = DEFAULT_SEED + trial;
     auto make = [&](uint64_t from, uint64_t to, uint64_t shared_to) {
       auto sketch = minhash_sketch::builder().set_k(112).set_seed(seed).build();
-      for (uint64_t i = base; i < base + shared_to; ++i) sketch.update(i);
-      for (uint64_t i = base + from; i < base + to; ++i) sketch.update(i);
+      for (uint64_t i = base; i < base + shared_to; ++i) { sketch.update(i); }
+      for (uint64_t i = base + from; i < base + to; ++i) { sketch.update(i); }
       return sketch;
     };
     // J = 900 / 1000 = 0.9: 900 shared, 50 exclusive each
@@ -196,7 +196,7 @@ TEST_CASE("minhash lsh: allocator", "[minhash_lsh]") {
     index_test_alloc index(4, 0.8, test_allocator<uint64_t>(0));
     for (uint64_t doc = 0; doc < 5; ++doc) {
       auto sketch = sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(16).build();
-      for (uint64_t i = doc * 10; i < doc * 10 + 100; ++i) sketch.update(i);
+      for (uint64_t i = doc * 10; i < doc * 10 + 100; ++i) { sketch.update(i); }
       index.add(doc, sketch);
     }
     REQUIRE(index.get_num_documents() == 5);
