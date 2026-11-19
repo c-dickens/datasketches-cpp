@@ -23,7 +23,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "MurmurHash3.h"
+#include "xxhash64.h"
 
 namespace datasketches {
 
@@ -63,10 +63,8 @@ auto minhash_lsh_index_alloc<A>::band_keys(const sketch_type& sketch, uint16_t n
   vector_u64 keys(sketch.get_signature().get_allocator());
   keys.reserve(num_bands);
   for (uint16_t band = 0; band < num_bands; ++band) {
-    HashState hashes;
-    MurmurHash3_x64_128(sketch.get_signature().data() + static_cast<size_t>(band) * rows,
-        rows * sizeof(uint64_t), sketch.get_seed() ^ band, hashes);
-    keys.push_back(hashes.h1);
+    keys.push_back(XXHash64::hash(sketch.get_signature().data() + static_cast<size_t>(band) * rows,
+        rows * sizeof(uint64_t), sketch.get_seed() + band));
   }
   return keys;
 }

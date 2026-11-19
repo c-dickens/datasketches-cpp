@@ -68,9 +68,9 @@ public:
 
   /**
    * Computes one 64-bit key per band of the given sketch.
-   * Band j covers signature slots [j * r, (j + 1) * r) with r = k / num_bands, hashed
-   * in native byte order with seed = sketch seed ^ j (band keys are an in-memory
-   * primitive, not a serialization format).
+   * Band j covers signature slots [j * r, (j + 1) * r) with r = k / num_bands.
+   * Key j = XXH64 of the band's slot values as 8-byte little-endian words, with
+   * seed = sketch seed + j (unsigned 64-bit, wraps). See minhash/SPEC.md, "Band keys".
    * @param sketch the sketch to compute band keys of
    * @param num_bands number of bands
    * @return one key per band, in band order

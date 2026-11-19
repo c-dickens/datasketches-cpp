@@ -22,6 +22,7 @@
 #include <test_allocator.hpp>
 
 #include "minhash_lsh.hpp"
+#include "xxhash64.h"
 
 namespace datasketches {
 
@@ -55,7 +56,7 @@ TEST_CASE("minhash lsh: band keys", "[minhash_lsh]") {
 }
 
 TEST_CASE("minhash lsh: band covers exactly its slot range", "[minhash_lsh]") {
-  // reproduce the keys independently, pinning both the slice bounds and the seed ^ band
+  // reproduce the keys independently, pinning both the slice bounds and the seed + band
   // derivation: a consistent off-by-one in the slicing would survive the determinism tests
   const auto sketch = make_sketch(0, 200, 16);
   const auto& signature = sketch.get_signature();
@@ -65,10 +66,8 @@ TEST_CASE("minhash lsh: band covers exactly its slot range", "[minhash_lsh]") {
     const auto keys = minhash_lsh_index::band_keys(sketch, num_bands);
     REQUIRE(keys.size() == num_bands);
     for (uint16_t band = 0; band < num_bands; ++band) {
-      HashState expected;
-      MurmurHash3_x64_128(signature.data() + band * rows, rows * sizeof(uint64_t),
-          sketch.get_seed() ^ band, expected);
-      REQUIRE(keys[band] == expected.h1);
+      REQUIRE(keys[band] == XXHash64::hash(signature.data() + band * rows, rows * sizeof(uint64_t),
+          sketch.get_seed() + band));
     }
   }
 }
@@ -116,8 +115,10 @@ TEST_CASE("minhash lsh: exact duplicates cluster", "[minhash_lsh]") {
   REQUIRE(clusters[0] == minhash_lsh_index::vector_u64{1, 2});
 }
 
-TEST_CASE("minhash lsh: s-curve statistics at 14 bands x 8 rows", "[minhash_lsh]") {
+TEST_CASE("minhash lsh: s-curve statistics at 14 bands x 8 rows", "[minhash][stats]") {
   // P(candidate | J) = 1 - (1 - J^8)^14: ~0.9996 at J = 0.9, ~4e-5 at J = 0.2
+  // exact binomial tails over 40 trials: P(high < 36) ~ 5e-12 and P(low > 3) ~ 2e-13,
+  // both below the 5 SD rate (~6e-7), so the thresholds stay as they are
   const int num_trials = 40;
   int high_candidates = 0;
   int low_candidates = 0;
