@@ -68,14 +68,20 @@ std::vector<uint64_t> pwr_2_law_points(uint64_t start, uint64_t end, unsigned pp
   if (start == 0 || end < start || ppo == 0) {
     throw std::invalid_argument("pwr_2_law_points: need 0 < start <= end and ppo > 0");
   }
-  std::vector<uint64_t> points;
-  for (uint64_t cur = start; cur < end;) {
-    points.push_back(cur);
-    const double next = std::round(std::exp2(std::log2(static_cast<double>(cur)) + 1.0 / ppo));
-    cur = std::max(cur + 1, static_cast<uint64_t>(next));
+  std::vector<uint64_t> points{start};
+  for (uint64_t cur = start;;) {
+    // pwr_2_law_next: the next point of the grid round(2^(i / ppo)) that is above cur.
+    auto i = static_cast<int64_t>(std::round(std::log2(static_cast<double>(cur)) * ppo));
+    uint64_t next = 0;
+    do {
+      next = static_cast<uint64_t>(std::round(std::pow(2.0, static_cast<double>(++i) / ppo)));
+    } while (next <= cur);
+    if (next > end) {
+      break;
+    }
+    points.push_back(next);
+    cur = next;
   }
-  // The rounding drifts off the powers of 2, so the last point is end itself.
-  points.push_back(end);
   return points;
 }
 
