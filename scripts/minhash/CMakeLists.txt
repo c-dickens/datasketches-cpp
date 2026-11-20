@@ -67,7 +67,7 @@ endif()
 string(TOUPPER "${CMAKE_BUILD_TYPE}" CHARACTERISE_BUILD_TYPE)
 string(STRIP "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CHARACTERISE_BUILD_TYPE}}" CHARACTERISE_BUILD_FLAGS)
 
-add_library(characterise STATIC src/common.cpp src/accuracy_j.cpp)
+add_library(characterise STATIC src/common.cpp src/accuracy_j.cpp src/speed.cpp)
 target_include_directories(characterise PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(characterise PUBLIC cxx_std_17)
 target_compile_options(characterise PRIVATE ${DEMO_WARNINGS})

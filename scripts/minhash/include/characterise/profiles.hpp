@@ -32,6 +32,12 @@ namespace characterise {
 /// The error of the MinHash Jaccard estimate against the true J (MH-16).
 void accuracy_j(std::ostream& out, bool smoke);
 
+/// The update time of MinHash and theta per item, against n (MH-18).
+void update_speed(std::ostream& out, bool smoke);
+
+/// The time of construction, merge and jaccard of MinHash and theta per call, against k (MH-18).
+void call_speed(std::ostream& out, bool smoke);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_PROFILES_HPP_

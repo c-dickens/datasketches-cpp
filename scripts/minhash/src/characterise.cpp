@@ -59,6 +59,10 @@ struct profile {
 const profile PROFILES[] = {
     {"minhash-accuracy-j", characterise::accuracy_j, false},
     {"minhash-accuracy-j-smoke", characterise::accuracy_j, true},
+    {"minhash-update-speed", characterise::update_speed, false},
+    {"minhash-update-speed-smoke", characterise::update_speed, true},
+    {"minhash-call-speed", characterise::call_speed, false},
+    {"minhash-call-speed-smoke", characterise::call_speed, true},
 };
 
 int usage(const char* program) {

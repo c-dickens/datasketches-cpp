@@ -20,7 +20,9 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
 
+#include <algorithm>
 #include <array>
+#include <functional>
 #include <cstdint>
 #include <sstream>
 #include <stdexcept>
@@ -85,6 +87,40 @@ TEST_CASE("covers is inclusive at both ends", "[characterise]") {
   REQUIRE(characterise::covers(bounds, 0.75));
   REQUIRE(!characterise::covers(bounds, 0.2499));
   REQUIRE(!characterise::covers(bounds, 0.7501));
+}
+
+TEST_CASE("pwr_2_law_points starts at start and ends at end", "[characterise]") {
+  REQUIRE(characterise::pwr_2_law_points(2, 64, 1) == std::vector<uint64_t>{2, 4, 8, 16, 32, 64});
+  const auto points = characterise::pwr_2_law_points(1, 1ULL << 20, 16);
+  REQUIRE(points.front() == 1);
+  REQUIRE(points.back() == 1ULL << 20);
+  REQUIRE(std::adjacent_find(points.begin(), points.end(), std::greater_equal<>()) == points.end());
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(0, 64, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(64, 2, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(2, 64, 0), std::invalid_argument);
+}
+
+TEST_CASE("num_trials interpolates log-linearly from the max to the min trials", "[characterise]") {
+  REQUIRE(characterise::num_trials(1, 0, 20, 4, 16) == 65536);
+  REQUIRE(characterise::num_trials(1ULL << 20, 0, 20, 4, 16) == 16);
+  REQUIRE(characterise::num_trials(1ULL << 10, 0, 20, 4, 16) == 1024);
+}
+
+TEST_CASE("u64_items multiplies the index by the golden ratio constant", "[characterise]") {
+  REQUIRE(characterise::u64_items(3) == std::vector<uint64_t>{0, 0x9E3779B97F4A7C15ULL, 0x3C6EF372FE94F82AULL});
+}
+
+TEST_CASE("string_items gives distinct strings of the given length", "[characterise]") {
+  const auto items = characterise::string_items(2, 64);
+  REQUIRE(items.size() == 2);
+  REQUIRE(items[0].size() == 64);
+  REQUIRE(items[1].size() == 64);
+  REQUIRE(items[0] != items[1]);
+  REQUIRE(characterise::string_items(1, 8) == std::vector<std::string>{std::string(8, '\0')});
+}
+
+TEST_CASE("cpu_model is not empty", "[characterise]") {
+  REQUIRE(!characterise::cpu_model().empty());
 }
 
 TEST_CASE("a copy saved from the stream after i items is the sketch of [0, i)", "[characterise]") {

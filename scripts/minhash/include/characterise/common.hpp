@@ -26,9 +26,11 @@
 // quantile columns, in the style of apache/datasketches-characterization.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "kll_sketch.hpp"
 
@@ -56,6 +58,25 @@ double normalised_error(double estimate, double j, uint16_t k);
 
 /// True when bounds[0] <= j <= bounds[2].
 bool covers(const std::array<double, 3>& bounds, double j);
+
+/// The points start, then next = max(cur + 1, round(2^(log2(cur) + 1/ppo))), up to and
+/// including end. This is pwr_2_law_next of the characterisation repo.
+/// Throws std::invalid_argument if start is 0, end < start, or ppo is 0.
+std::vector<uint64_t> pwr_2_law_points(uint64_t start, uint64_t end, unsigned ppo);
+
+/// round(2^lg_t), with lg_t = lg_max_t - (lg_max_t - lg_min_t) * (log2(x) - lg_min_x) / (lg_max_x - lg_min_x),
+/// and lg_t limited to [lg_min_t, lg_max_t]. This is get_num_trials of the characterisation repo.
+uint64_t num_trials(uint64_t x, unsigned lg_min_x, unsigned lg_max_x, unsigned lg_min_t, unsigned lg_max_t);
+
+/// The CPU model: on macOS from sysctlbyname("machdep.cpu.brand_string"), on Linux from the
+/// first "model name" line of /proc/cpuinfo, otherwise "unknown".
+std::string cpu_model();
+
+/// The items of one type, made once: "u64" gives i * 0x9E3779B97F4A7C15 (mod 2^64) as uint64_t;
+/// "str8" and "str64" give strings of 8 and 64 bytes: the 8 little-endian bytes of i, then
+/// 'x' up to the length.
+std::vector<uint64_t> u64_items(std::size_t n);
+std::vector<std::string> string_items(std::size_t n, std::size_t length);
 
 }  // namespace characterise
 

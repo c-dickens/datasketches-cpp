@@ -51,3 +51,18 @@ run_profile() {
 
 run_profile "minhash-accuracy-j$suffix" accuracy_j.tsv
 uv run plots/accuracy_j.py "$out"
+
+# run_speed <profile name> <file stem>: the speed results describe one machine, so the file
+# name is <stem>_<tag>.tsv, with tag = <compiler>_<cpu> in lower case and runs of other
+# characters replaced by one "_".
+run_speed() {
+  run_profile "$1" "$2.tsv.tmp"
+  local tag
+  tag=$(printf '%s_%s' "$(sed -n 's/^# compiler=//p' "$out/$2.tsv.tmp")" "$(sed -n 's/^# cpu=//p' "$out/$2.tsv.tmp")" \
+    | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cs 'a-z0-9' '_')
+  mv "$out/$2.tsv.tmp" "$out/$2_$tag.tsv"
+}
+
+run_speed "minhash-update-speed$suffix" update_speed
+run_speed "minhash-call-speed$suffix" call_speed
+uv run plots/speed.py "$out"

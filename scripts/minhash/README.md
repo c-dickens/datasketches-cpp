@@ -167,6 +167,10 @@ are committed.
 |---|---|---|
 | `minhash-accuracy-j` | The error of the Jaccard estimate against the true J, for k = 16 to 4096 | 112 s |
 | `minhash-accuracy-j-smoke` | The same, with k ≤ 256, 256 trials and a coarse J grid | less than 1 s |
+| `minhash-update-speed` | ns per item of `update()` against n = 1 to 2^20, for MinHash and theta, with `u64`, 8-byte and 64-byte string items | about 1.1 h (estimate) |
+| `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | less than 1 s |
+| `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 1 min (estimate) |
+| `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | about 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -179,6 +183,20 @@ The run time is for an Apple M4 laptop, not counting the build.
 - `accuracy_j_error.svg`, `accuracy_j_normalised.svg` and
   `accuracy_j_coverage.svg`: the plots.
 - `accuracy_j.md`: a summary for each k, with links to the plots.
+
+The speed profiles (MH-18) compare MinHash with theta at the same k. Run
+them on a quiet machine, because other work changes the times. Each trial
+times only the update loop, and each call result goes into a sink, so that
+the compiler keeps the work. The numbers describe one machine, so the files
+are named with a tag `<compiler>_<cpu>`, for example
+`appleclang_21_0_0_21000101_apple_m4`:
+
+- `update_speed_<tag>.tsv` and `call_speed_<tag>.tsv`: the profile outputs.
+  The `#` lines also give the CPU.
+- `update_speed_<tag>.svg` and `call_speed_<tag>.svg`: the plots against n
+  and against k. MinHash is solid, and theta is dashed.
+- `speed_<tag>.md`: the tables of ns per item at the largest n and of ns per
+  call.
 
 To open a plot notebook interactively:
 
