@@ -167,6 +167,8 @@ are committed.
 |---|---|---|
 | `minhash-accuracy-j` | The error of the Jaccard estimate against the true J, for k = 16 to 4096 | 112 s |
 | `minhash-accuracy-j-smoke` | The same, with k ≤ 256, 256 trials and a coarse J grid | less than 1 s |
+| `minhash-accuracy-n` | The MinHash and theta Jaccard error against the union size n, from 2 to 65536, at J = 0.1, 0.5 and 0.9, for k = 16 to 4096, with the theta memory against MinHash | 36 min |
+| `minhash-accuracy-n-smoke` | The same, with k ≤ 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -179,6 +181,17 @@ The run time is for an Apple M4 laptop, not counting the build.
 - `accuracy_j_error.svg`, `accuracy_j_normalised.svg` and
   `accuracy_j_coverage.svg`: the plots.
 - `accuracy_j.md`: a summary for each k, with links to the plots.
+
+`minhash-accuracy-n` writes these files:
+
+- `accuracy_n.tsv`: one row for each (k, J, n), with the bias, the measured SD,
+  the error quantiles and the bounds coverage of both sketches, and the minimum
+  and maximum retained entries and compact bytes of theta.
+- `accuracy_n_error_j10.svg`, `accuracy_n_error_j50.svg`,
+  `accuracy_n_error_j90.svg`, `accuracy_n_coverage.svg` and
+  `accuracy_n_memory.svg`: the plots.
+- `accuracy_n.md`: the end of the small-set region and the theta memory ratio
+  for each k, with links to the plots.
 
 To open a plot notebook interactively:
 
