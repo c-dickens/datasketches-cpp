@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "characterise/common.hpp"
+#include "characterise/profiles.hpp"
 #include "common_defs.hpp"
 #include "minhash_sketch.hpp"
 
@@ -69,6 +70,46 @@ TEST_CASE("write_quantiles writes min, median and max of the sketch", "[characte
   REQUIRE(std::stod(values.back()) == 1000.0);
   const double median = std::stod(values[4]);
   REQUIRE((median == 500.0 || median == 501.0));
+}
+
+TEST_CASE("the accuracy_j smoke profile writes a complete, deterministic TSV", "[characterise]") {
+  std::ostringstream out;
+  characterise::accuracy_j(out, true);
+  std::istringstream lines(out.str());
+  std::string line;
+  std::vector<std::string> metadata;
+  std::vector<std::vector<std::string>> table;  // the header, then the data rows
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      metadata.push_back(line);
+    } else {
+      table.push_back(split_tabs(line));
+    }
+  }
+  REQUIRE(metadata.front() == "# profile=minhash-accuracy-j-smoke");
+  REQUIRE(metadata.back() == "# k_values=16,64,256");
+
+  // 9 fixed columns, 2 x 9 quantile columns, 3 coverage columns.
+  const std::size_t columns = 30;
+  const std::size_t j_points = 19;
+  REQUIRE(table.size() == 1 + characterise::SMOKE_K_VALUES.size() * j_points);
+  REQUIRE(table.front().size() == columns);
+  REQUIRE(table.front().back() == "Cover3SD");
+  for (std::size_t r = 1; r < table.size(); ++r) {
+    const auto& row = table[r];
+    REQUIRE(row.size() == columns);
+    REQUIRE(std::stoi(row[0]) == characterise::SMOKE_K_VALUES[(r - 1) / j_points]);
+    REQUIRE(std::stod(row[1]) == Approx(0.05 * static_cast<double>((r - 1) % j_points + 1)));
+    for (std::size_t c = columns - 3; c < columns; ++c) {
+      const double coverage = std::stod(row[c]);
+      REQUIRE(coverage >= 0.0);
+      REQUIRE(coverage <= 1.0);
+    }
+  }
+
+  std::ostringstream again;
+  characterise::accuracy_j(again, true);
+  REQUIRE(again.str() == out.str());
 }
 
 TEST_CASE("normalised_error divides by the theory SD", "[characterise]") {

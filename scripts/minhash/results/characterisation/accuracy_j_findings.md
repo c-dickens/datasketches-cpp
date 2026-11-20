@@ -77,7 +77,11 @@ error. The 3 blue bands contain the middle 68.3 %, 95.4 % and 99.7 % of the
 - The error is largest at J = 0.5, and it is smaller near J = 0 and J = 1.
 - Each step from k to 4k halves the error. For example, at J = 0.5 the SD is
   0.125 at k = 16 and 0.0078 at k = 4096.
-- The median stays on zero, so the estimate has no visible bias.
+- The median does not measure bias here, because Ĵ is discrete and skewed. At
+  k = 16 the median moves in steps of 1/16 (−0.04 to +0.04), and it is −J for
+  J ≤ 0.04, as the Theory section expects. At k ≥ 1024 it is within 0.16 SD of
+  zero. The mean error measures bias: for k ≤ 1024, |BiasOverSE| is at most
+  2.6, so the estimate shows no bias there.
 - One small effect is not visible on the plot. At k = 4096, the mean error is
   negative at all 99 values of J, and its largest size is 4.1 standard errors
   (J = 0.02). In absolute terms it is −1.4 × 10⁻⁴, against an SD of
@@ -99,8 +103,13 @@ distribution. A line on its grey line means a match with theory.
 
 **Findings.**
 
-- For k ≥ 256, the quantiles are on the grey lines. Over all J, the mean
-  quantiles are within 0.12 of −3, −2, −1, 0, 1, 2 and 3.
+- Where kJ(1 − J) is large, the quantiles are on the grey lines. At k = 1024
+  and k = 4096, every quantile is within 0.5 of its normal value at every J. At
+  k = 256 this is true except at J ≤ 0.03 and J ≥ 0.97. For example, at k = 256
+  and J = 0.01 (kJ(1 − J) ≈ 2.5), the quantiles go from −1.61 to 4.67. At
+  k = 64 it fails at 26 of the 99 J values, all at J ≤ 0.2 or J ≥ 0.84.
+- These deviations are the ones that the Theory section expects where
+  kJ(1 − J) is below about 10.
 - At k = 16, the lines are steps, and the ±3σ lines are at about ±2.7. With 16
   slots, the estimate can take only 17 values, so its distribution cannot be
   exactly normal. k = 64 is between the two.
