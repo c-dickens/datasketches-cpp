@@ -34,6 +34,7 @@
 
 #include <catch2/catch.hpp>
 
+#include "minhash_lsh.hpp"
 #include "minhash_sketch.hpp"
 #include "xxhash64.h"
 
@@ -206,6 +207,40 @@ TEST_CASE("minhash vectors: several items keep the slot-wise minimum", "[minhash
   slots_t expected(K);
   for (size_t i = 0; i < K; ++i) { expected[i] = std::min(a[i], std::min(b[i], c[i])); }
   REQUIRE(signature_of(sketch) == expected);
+}
+
+TEST_CASE("minhash vectors: band keys", "[minhash][vectors]") {
+  // key[j] = XXH64(slots [j * r, (j + 1) * r) as 8-byte little-endian words, 8 * r, seed + j),
+  // with r = k / num_bands. Checked two ways: way 1 builds the bytes by hand from
+  // expected_slots(); way 2 is the fixed values from Python xxhash 3.5.0 (minhash/SPEC.md)
+  struct band_case { uint16_t num_bands; slots_t keys; };
+  const band_case band_cases[] = {
+    {1, {0x94D52721200555A7ULL}},
+    {2, {0x8D1264A88D0DABD4ULL, 0x166CAA29D8D75C81ULL}},
+    {4, {0xF3E9632F9F03C03AULL, 0x27C14135F335F0F4ULL, 0x3723008D9AFFAC4BULL, 0x2305CD44E2E10767ULL}},
+    {8, {0x417CAFB04294EE6DULL, 0xE446D225A8C57717ULL, 0x8078FF4970395281ULL, 0x7EC82DB84564B807ULL,
+         0x9C90DDEE4659293EULL, 0x45B310F37D0C1831ULL, 0x8385D5439F3F0B3FULL, 0x5A7FBBD7340692F6ULL}},
+  };
+  const slots_t slots = expected_slots(find("int64 0").bytes);
+  auto sketch = make();
+  sketch.update(static_cast<int64_t>(0));
+
+  for (const auto& c: band_cases) {
+    INFO("num_bands " << c.num_bands);
+    const uint32_t rows = K / c.num_bands;
+    slots_t by_hand;
+    for (uint16_t band = 0; band < c.num_bands; ++band) {
+      bytes_t bytes;
+      for (uint32_t row = 0; row < rows; ++row) {
+        const uint64_t slot = slots[band * rows + row];
+        for (int shift = 0; shift < 64; shift += 8) { bytes.push_back(static_cast<unsigned char>(slot >> shift)); }
+      }
+      by_hand.push_back(XXHash64::hash(bytes.data(), bytes.size(), DEFAULT_SEED + band));
+    }
+    REQUIRE(by_hand == c.keys);
+    const auto keys = minhash_lsh_index::band_keys(sketch, c.num_bands);
+    REQUIRE(slots_t(keys.begin(), keys.end()) == c.keys);
+  }
 }
 
 } /* namespace datasketches */

@@ -129,6 +129,37 @@ the order of the merges.
 - The bounds are approximate Clopper-Pearson bounds on the match proportion,
   with num_std_devs = 1, 2 or 3. Other values are rejected.
 
+## Band keys
+
+LSH splits a signature into num_bands bands of r = k / num_bands consecutive
+slots. Band j, for j = 0 … num_bands − 1, covers slots [j·r, (j + 1)·r).
+
+```
+key[j] = XXH64(slot[j·r] … slot[(j + 1)·r − 1] as 8-byte little-endian words, 8·r, seed + j)
+```
+
+- seed is the sketch's hash seed. The sum seed + j is unsigned 64-bit and
+  wraps mod 2^64.
+- Each band key is one seeded XXH64 call. Band keys do not use SplitMix64.
+- num_bands must divide k. An empty sketch has no band keys: the C++ code
+  throws `std::invalid_argument`.
+- The C++ code passes the signature words to `common/include/xxhash64.h`
+  from memory. By the same argument as rule 2 in "Items become bytes", the
+  result is XXH64 of the little-endian bytes on every platform.
+
+Band-key test vectors: k = 8, seed = 9001, and the signature of the "int64 0"
+row in "Test vectors". The values come from the Python `xxhash` package 3.5.0
+and the slot values below, not from the C++ code. The test case
+"minhash vectors: band keys" in `minhash/test/minhash_sketch_vectors_test.cpp`
+checks them.
+
+| num_bands | r | key[0] … key[num_bands − 1] |
+|---|---|---|
+| 1 | 8 | `94D52721200555A7` |
+| 2 | 4 | `8D1264A88D0DABD4` `166CAA29D8D75C81` |
+| 4 | 2 | `F3E9632F9F03C03A` `27C14135F335F0F4` `3723008D9AFFAC4B` `2305CD44E2E10767` |
+| 8 | 1 | `417CAFB04294EE6D` `E446D225A8C57717` `8078FF4970395281` `7EC82DB84564B807` `9C90DDEE4659293E` `45B310F37D0C1831` `8385D5439F3F0B3F` `5A7FBBD7340692F6` |
+
 ## Test vectors
 
 k = 8 and seed = 9001. Each row gives the item's bytes (hex, in hash order),
