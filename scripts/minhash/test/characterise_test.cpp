@@ -148,3 +148,40 @@ TEST_CASE("a copy saved from the stream after i items is the sketch of [0, i)", 
     REQUIRE(copies[c].get_signature() == fresh.get_signature());
   }
 }
+
+TEST_CASE("pwr_2_law_points gives the power-law grid from start to end", "[characterise]") {
+  REQUIRE(characterise::pwr_2_law_points(2, 64, 1) == std::vector<uint64_t>{2, 4, 8, 16, 32, 64});
+  const auto points = characterise::pwr_2_law_points(2, 65536, 16);
+  REQUIRE(points.front() == 2);
+  REQUIRE(points.back() == 65536);
+  for (std::size_t i = 1; i < points.size(); ++i) {
+    REQUIRE(points[i] > points[i - 1]);
+  }
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(0, 64, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(8, 4, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(2, 64, 0), std::invalid_argument);
+}
+
+TEST_CASE("in_b puts (n m) / 10 of the first n items in B", "[characterise]") {
+  for (const uint64_t n : {1, 2, 10, 17, 1000}) {
+    for (const unsigned m : {1U, 5U, 9U}) {
+      uint64_t count = 0;
+      for (uint64_t x = 0; x < n; ++x) {
+        count += characterise::in_b(x, m) ? 1 : 0;
+      }
+      REQUIRE(count == n * m / 10);
+    }
+  }
+}
+
+TEST_CASE("theta_compact_bytes is the serialized size of the compact sketch", "[characterise]") {
+  for (const uint8_t lg_k : {4, 12}) {
+    for (const uint64_t n : {1, 2, 100, 10000}) {
+      auto a = datasketches::update_theta_sketch::builder().set_lg_k(lg_k).build();
+      for (uint64_t x = 0; x < n; ++x) {
+        a.update(x);
+      }
+      REQUIRE(characterise::theta_compact_bytes(a) == a.compact().get_serialized_size_bytes());
+    }
+  }
+}

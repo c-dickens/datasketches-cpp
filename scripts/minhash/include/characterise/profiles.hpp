@@ -32,6 +32,9 @@ namespace characterise {
 /// The error of the MinHash Jaccard estimate against the true J (MH-16).
 void accuracy_j(std::ostream& out, bool smoke);
 
+/// The error of the MinHash and theta Jaccard estimates against the union size n (MH-17).
+void accuracy_n(std::ostream& out, bool smoke);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_PROFILES_HPP_

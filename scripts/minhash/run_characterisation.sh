@@ -51,3 +51,5 @@ run_profile() {
 
 run_profile "minhash-accuracy-j$suffix" accuracy_j.tsv
 uv run plots/accuracy_j.py "$out"
+run_profile "minhash-accuracy-n$suffix" accuracy_n.tsv
+uv run plots/accuracy_n.py "$out"
