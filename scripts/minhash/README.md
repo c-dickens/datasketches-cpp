@@ -133,12 +133,13 @@ every post and every k.
 `vectors/band_keys.py` computes the 15 band-key test vectors of
 `minhash/SPEC.md` ("Band keys") with the Python `xxhash` package, which is
 independent of the C++ code. It then checks them against the SPEC.md table.
-Run it in a virtualenv. Git ignores `.venv/`.
+Run it in a virtualenv. Git ignores `.venv/`. Run these commands from the
+repo root, not from this directory:
 
 ```bash
-python3 -m venv vectors/.venv
-vectors/.venv/bin/pip install -r vectors/requirements.txt
-vectors/.venv/bin/python vectors/band_keys.py
+python3 -m venv scripts/minhash/vectors/.venv
+scripts/minhash/vectors/.venv/bin/pip install -r scripts/minhash/vectors/requirements.txt
+scripts/minhash/vectors/.venv/bin/python scripts/minhash/vectors/band_keys.py
 ```
 
 The last line must be `all 15 band keys match SPEC.md`. If a key does not
