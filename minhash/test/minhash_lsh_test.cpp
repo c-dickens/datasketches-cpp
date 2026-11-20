@@ -115,7 +115,7 @@ TEST_CASE("minhash lsh: exact duplicates cluster", "[minhash_lsh]") {
   REQUIRE(clusters[0] == minhash_lsh_index::vector_u64{1, 2});
 }
 
-TEST_CASE("minhash lsh: s-curve statistics at 14 bands x 8 rows", "[minhash][stats]") {
+TEST_CASE("minhash lsh: s-curve statistics at 14 bands x 8 rows", "[minhash_lsh][minhash][stats]") {
   // P(candidate | J) = 1 - (1 - J^8)^14: ~0.9996 at J = 0.9, ~4e-5 at J = 0.2
   // exact binomial tails over 40 trials: P(high < 36) ~ 5e-12 and P(low > 3) ~ 2e-13,
   // both below the 5 SD rate (~6e-7), so the thresholds stay as they are

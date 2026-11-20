@@ -142,7 +142,7 @@ scripts/minhash/vectors/.venv/bin/pip install -r scripts/minhash/vectors/require
 scripts/minhash/vectors/.venv/bin/python scripts/minhash/vectors/band_keys.py
 ```
 
-The last line must be `all 15 band keys match SPEC.md`. If a key does not
+The last line must be `xxhash 3.5.0 - all 15 band keys match SPEC.md`. If a key does not
 match, the script exits with status 1.
 
 ## Credits

@@ -19,7 +19,8 @@
 #
 # Computes the band-key test vectors of minhash/SPEC.md ("Band keys") with the
 # Python xxhash package, an XXH64 that is independent of the C++ code. Then it
-# checks them against the table in SPEC.md. Exit status 1 means a mismatch.
+# checks them against the table in SPEC.md. It also reads the input slot values
+# from SPEC.md. Exit status 1 means a mismatch.
 
 import pathlib
 import re
@@ -29,27 +30,30 @@ import sys
 import xxhash
 
 SEED = 9001
-# the k = 8 signature of the "int64 0" row in SPEC.md "Test vectors"
-SLOTS = [0x63994435A96EBAE5, 0x3B617E1A355C0F92, 0x47FB59AD21DC0D5C, 0x681DBA163E1F7EED,
-         0x01AD99477E4DC78D, 0x07EFEC7F1A4C5232, 0x4C3C0D0CED1E2E37, 0x6F31AD0D99A092A9]
 SPEC = pathlib.Path(__file__).resolve().parents[3] / "minhash" / "SPEC.md"
 
 
-def band_keys(num_bands):
-    r = len(SLOTS) // num_bands
-    return ["%016X" % xxhash.xxh64_intdigest(struct.pack("<%dQ" % r, *SLOTS[j * r:(j + 1) * r]),
+def band_keys(slots, num_bands):
+    r = len(slots) // num_bands
+    return ["%016X" % xxhash.xxh64_intdigest(struct.pack("<%dQ" % r, *slots[j * r:(j + 1) * r]),
                                              seed=SEED + j)
             for j in range(num_bands)]
 
 
 def main():
+    text = SPEC.read_text()
+    # the k = 8 signature of the "int64 0" row in SPEC.md "Test vectors", "Slot values"
+    m = re.search(r"^int64 0\s+((?:[0-9A-F]{16}\s+){8})", text, re.M)
+    if m is None:
+        sys.exit("no int64 0 slot values in " + str(SPEC))
+    slots = [int(word, 16) for word in m.group(1).split()]
     # rows of the SPEC.md table: | num_bands | r | `key` `key` ... |
-    spec = {int(m.group(1)): re.findall(r"`([0-9A-F]{16})`", m.group(2))
-            for m in re.finditer(r"^\| (\d+) \| \d+ \| (.*) \|$", SPEC.read_text(), re.M)}
+    spec = {int(m.group(1)): (int(m.group(2)), re.findall(r"`([0-9A-F]{16})`", m.group(3)))
+            for m in re.finditer(r"^\| (\d+) \| (\d+) \| (.*) \|$", text, re.M)}
     ok = True
     for num_bands in (1, 2, 4, 8):
-        keys = band_keys(num_bands)
-        match = spec.get(num_bands) == keys
+        keys = band_keys(slots, num_bands)
+        match = spec.get(num_bands) == (len(slots) // num_bands, keys)
         ok = ok and match
         print(num_bands, " ".join(keys), "OK" if match else "MISMATCH with SPEC.md")
     print("xxhash", xxhash.VERSION, "-", "all 15 band keys match SPEC.md" if ok else "FAILED")
