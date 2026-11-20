@@ -56,6 +56,31 @@ add_executable(minhash_20news src/minhash_20news.cpp)
 target_link_libraries(minhash_20news PRIVATE news20 demo)
 target_compile_options(minhash_20news PRIVATE ${DEMO_WARNINGS})
 
+# The characterisation harness (MH-16). The TSV metadata records the commit, the compiler and
+# the flags. The commit is read at configure time, so reconfigure before a run.
+execute_process(COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  OUTPUT_VARIABLE CHARACTERISE_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if (NOT CHARACTERISE_GIT_COMMIT)
+  set(CHARACTERISE_GIT_COMMIT unknown)
+endif()
+string(TOUPPER "${CMAKE_BUILD_TYPE}" CHARACTERISE_BUILD_TYPE)
+string(STRIP "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${CHARACTERISE_BUILD_TYPE}}" CHARACTERISE_BUILD_FLAGS)
+
+add_library(characterise STATIC src/common.cpp src/accuracy_j.cpp src/speed.cpp)
+target_include_directories(characterise PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(characterise PUBLIC cxx_std_17)
+target_compile_options(characterise PRIVATE ${DEMO_WARNINGS})
+target_compile_definitions(characterise PRIVATE
+  CHARACTERISE_GIT_COMMIT="${CHARACTERISE_GIT_COMMIT}"
+  CHARACTERISE_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}"
+  CHARACTERISE_BUILD_FLAGS="${CHARACTERISE_BUILD_FLAGS}")
+target_link_libraries(characterise PUBLIC datasketches common)
+
+add_executable(minhash_characterise src/characterise.cpp)
+target_link_libraries(minhash_characterise PRIVATE characterise)
+target_compile_options(minhash_characterise PRIVATE ${DEMO_WARNINGS})
+
 include(CTest)
 if (BUILD_TESTING)
   include(FetchContent)
@@ -75,4 +100,9 @@ if (BUILD_TESTING)
   target_link_libraries(demo_test PRIVATE demo Catch2::Catch2)
   target_compile_options(demo_test PRIVATE ${DEMO_WARNINGS})
   add_test(NAME demo_test COMMAND demo_test)
+
+  add_executable(characterise_test test/characterise_test.cpp)
+  target_link_libraries(characterise_test PRIVATE characterise Catch2::Catch2)
+  target_compile_options(characterise_test PRIVATE ${DEMO_WARNINGS})
+  add_test(NAME characterise_test COMMAND characterise_test)
 endif()
