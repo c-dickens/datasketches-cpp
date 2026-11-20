@@ -128,6 +128,23 @@ at least 1,000 pairs is checked:
 The merge of the 4 piece sketches must equal the sketch of the whole set, for
 every post and every k.
 
+## Band-key test vectors
+
+`vectors/band_keys.py` computes the 15 band-key test vectors of
+`minhash/SPEC.md` ("Band keys") with the Python `xxhash` package, which is
+independent of the C++ code. It then checks them against the SPEC.md table.
+Run it in a virtualenv. Git ignores `.venv/`. Run these commands from the
+repo root, not from this directory:
+
+```bash
+python3 -m venv scripts/minhash/vectors/.venv
+scripts/minhash/vectors/.venv/bin/pip install -r scripts/minhash/vectors/requirements.txt
+scripts/minhash/vectors/.venv/bin/python scripts/minhash/vectors/band_keys.py
+```
+
+The last line must be `xxhash 3.5.0 - all 15 band keys match SPEC.md`. If a key does not
+match, the script exits with status 1.
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
