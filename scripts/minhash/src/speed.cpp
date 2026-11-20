@@ -46,7 +46,7 @@ using steady = std::chrono::steady_clock;
 
 constexpr uint64_t FULL_MAX_N = 1ULL << 20;
 constexpr uint64_t SMOKE_MAX_N = 1ULL << 14;
-constexpr unsigned FULL_PPO = 16;
+constexpr unsigned FULL_PPO = 8;
 constexpr unsigned SMOKE_PPO = 4;
 constexpr unsigned FULL_LG_MAX_N = 20;
 constexpr unsigned SMOKE_LG_MAX_N = 14;
