@@ -9,7 +9,7 @@ The work plan is the Linear project "Apache DataSketches", milestone "MinHash + 
 - Never push to, or open a PR against, any `apache/*` repository.
 - Never merge a PR. The owner merges.
 - Library code under `minhash/` is C++11. Use the repo's warning flags, and follow the style of `theta/`.
-- Never use `std::` random engines or `std::hash` for item hashes, slot values or band keys. Use `common/include/xxhash64.h`. In-memory hash maps may use `std::hash` only when no output depends on their iteration order: sort anything taken from them before you return it, serialize it or print it.
+- Never use `std::` random engines or `std::hash` for item hashes, slot values or band keys. Use `common/include/xxhash64.h`. In-memory hash maps may use `std::hash` only when no output depends on their iteration order. Sort anything taken from them before you return it, serialize it or print it, and do not let a result computed during iteration (first-wins choices, early exits, floating-point sums) depend on that order.
 - Slot values use 63 bits (`hash >> 1`), and `INT64_MAX` is the empty marker. The empty flag decides emptiness.
 - Every new source file starts with the ASF licence header.
 - `scripts/minhash/` holds the demos. It is fork-only, and it may use C++17.
