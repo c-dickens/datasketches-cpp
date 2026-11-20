@@ -19,7 +19,7 @@ Report only real problems. Give each one a file:line, a severity (Blocker, Major
 **Hashing and format** (see `change-hash-or-format`)
 - The code matches `minhash/SPEC.md`.
 - Test vectors change only when the ticket says so, and no expected value comes from the implementation.
-- No `std::` random engine and no `std::hash` for item hashes, slot values or band keys. In-memory hash maps may use `std::hash`.
+- No `std::` random engine and no `std::hash` for item hashes, slot values or band keys. In-memory hash maps may use `std::hash` only if no output (return value, serialized bytes, printed result) depends on their iteration order.
 - Bytes are explicit little-endian.
 
 **C++ and the library**
