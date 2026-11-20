@@ -61,6 +61,8 @@ const profile PROFILES[] = {
     {"minhash-accuracy-j-smoke", characterise::accuracy_j, true},
     {"minhash-accuracy-n", characterise::accuracy_n, false},
     {"minhash-accuracy-n-smoke", characterise::accuracy_n, true},
+    {"minhash-accuracy-n-half", characterise::accuracy_n_half, false},
+    {"minhash-accuracy-n-half-smoke", characterise::accuracy_n_half, true},
 };
 
 int usage(const char* program) {

@@ -21,6 +21,8 @@
 // size n, at J = 0.1, 0.5 and 0.9. A = [0, n), and B_m holds the items x of A with in_b(x, m),
 // so the true J at each n is exact, and one pass gives every n and every m.
 // Trial t uses the seed DEFAULT_SEED + t for both sketches.
+// Profile accuracy_n_half is the same, with theta at half the nominal k: theta then never uses
+// more memory than MinHash.
 
 #include <algorithm>
 #include <array>
@@ -31,6 +33,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <vector>
 
 #include "characterise/common.hpp"
@@ -53,6 +56,9 @@ constexpr unsigned FULL_PPO = 16;
 constexpr unsigned SMOKE_PPO = 4;
 constexpr std::array<unsigned, 3> M_VALUES = {1, 5, 9};  // J = m / 10
 constexpr uint8_t MAX_SD_LEVEL = 3;                       // MinHash coverage at 1, 2 and 3 SD
+// accuracy_n_half: no k = 16, because theta at lg_k = 3 is below its MIN_LG_K of 4.
+constexpr std::array<uint16_t, 4> HALF_K_VALUES = {64, 256, 1024, 4096};
+constexpr std::array<uint16_t, 2> SMOKE_HALF_K_VALUES = {64, 256};
 
 using sketch = datasketches::minhash_sketch;
 using theta = datasketches::update_theta_sketch;
@@ -107,17 +113,15 @@ void write_row(std::ostream& out, uint16_t k, unsigned m, uint64_t trials, const
       << p.bytes_min << "\t" << p.bytes_max << "\t" << 8 * static_cast<uint64_t>(k) << "\n";
 }
 
-}  // namespace
-
-void accuracy_n(std::ostream& out, bool smoke) {
-  const std::vector<uint16_t> k_values = smoke ? std::vector<uint16_t>(SMOKE_K_VALUES.begin(), SMOKE_K_VALUES.end())
-                                               : std::vector<uint16_t>(K_VALUES.begin(), K_VALUES.end());
+// Runs the profile `name`. MinHash uses k, and theta uses lg_k = log2(k) - theta_lg_k_offset.
+void run(std::ostream& out, const std::string& name, const std::vector<uint16_t>& k_values, uint8_t theta_lg_k_offset,
+         bool smoke) {
   const uint64_t trials = smoke ? SMOKE_TRIALS : FULL_TRIALS;
   const unsigned ppo = smoke ? SMOKE_PPO : FULL_PPO;
   const std::vector<uint64_t> n_points = pwr_2_law_points(N_START, smoke ? SMOKE_N_END : FULL_N_END, ppo);
 
   out << std::setprecision(10);
-  write_metadata(out, smoke ? "minhash-accuracy-n-smoke" : "minhash-accuracy-n");
+  write_metadata(out, name);
   out << "# trials=" << trials << "\n";
   out << "# seed_base=" << datasketches::DEFAULT_SEED << "\n";
   out << "# k_values=";
@@ -127,13 +131,16 @@ void accuracy_n(std::ostream& out, bool smoke) {
   out << "\n";
   out << "# ppo=" << ppo << "\n";
   out << "# theta_bounds=2SD\n";
+  if (theta_lg_k_offset != 0) {  // no line at offset 0, so the accuracy_n output stays as committed
+    out << "# theta_lg_k=log2(K)-" << static_cast<unsigned>(theta_lg_k_offset) << "\n";
+  }
   out << "K\tTargetJ\tN\tTrueJ\tTrials\tTheorySD\tMH_MeanBias\tMH_MeasuredSD\t" << quantile_header("MH_AbsErr")
       << "\tMH_Cover1SD\tMH_Cover2SD\tMH_Cover3SD\tTH_MeanBias\tTH_MeasuredSD\t" << quantile_header("TH_AbsErr")
       << "\tTH_Cover2SD\tTH_RetainedA_Min\tTH_RetainedA_Max\tTH_BytesA_Min\tTH_BytesA_Max\tMH_Bytes\n";
 
   const auto start = std::chrono::steady_clock::now();
   for (const uint16_t k : k_values) {
-    const auto lg_k = static_cast<uint8_t>(std::lround(std::log2(k)));
+    const auto lg_k = static_cast<uint8_t>(std::lround(std::log2(k)) - theta_lg_k_offset);  // theta only
 
     // points[mi][p] is the point of M_VALUES[mi] at n_points[p], or has n = 0 when J would be 0 or 1.
     std::vector<std::vector<point>> points(M_VALUES.size());
@@ -212,9 +219,25 @@ void accuracy_n(std::ostream& out, bool smoke) {
       }
     }
     const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - start;
-    std::cerr << "accuracy_n: k = " << k << " done, " << std::fixed << std::setprecision(1) << elapsed.count()
+    std::cerr << name << ": k = " << k << " done, " << std::fixed << std::setprecision(1) << elapsed.count()
               << " s elapsed\n";
   }
+}
+
+}  // namespace
+
+void accuracy_n(std::ostream& out, bool smoke) {
+  run(out, smoke ? "minhash-accuracy-n-smoke" : "minhash-accuracy-n",
+      smoke ? std::vector<uint16_t>(SMOKE_K_VALUES.begin(), SMOKE_K_VALUES.end())
+            : std::vector<uint16_t>(K_VALUES.begin(), K_VALUES.end()),
+      0, smoke);
+}
+
+void accuracy_n_half(std::ostream& out, bool smoke) {
+  run(out, smoke ? "minhash-accuracy-n-half-smoke" : "minhash-accuracy-n-half",
+      smoke ? std::vector<uint16_t>(SMOKE_HALF_K_VALUES.begin(), SMOKE_HALF_K_VALUES.end())
+            : std::vector<uint16_t>(HALF_K_VALUES.begin(), HALF_K_VALUES.end()),
+      1, smoke);
 }
 
 }  // namespace characterise

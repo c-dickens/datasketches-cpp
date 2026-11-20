@@ -21,7 +21,8 @@
 # ///
 
 # Plots of the minhash-accuracy-n profile (MH-17).
-#   uv run plots/accuracy_n.py [<results dir>]   writes the SVG files and accuracy_n.md
+#   uv run plots/accuracy_n.py [<results dir> [<stem>]]   reads <stem>.tsv (default accuracy_n), and
+#                                                          writes the SVG files and <stem>.md
 #   uvx marimo edit plots/accuracy_n.py           opens the notebook
 
 import marimo
@@ -52,10 +53,16 @@ def _():
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     results_dir = Path(args[0]) if args and not mo.running_in_notebook() else Path("results/characterisation")
-    df = pd.read_csv(results_dir / "accuracy_n.tsv", sep="\t", comment="#")
+    stem = args[1] if len(args) > 1 and not mo.running_in_notebook() else "accuracy_n"
+    tsv = results_dir / f"{stem}.tsv"
+    df = pd.read_csv(tsv, sep="\t", comment="#")
+    # accuracy_n_half writes "# theta_lg_k=log2(K)-1". accuracy_n has no such line.
+    theta_lg_k = next((line.split("=", 1)[1].strip() for line in tsv.read_text().splitlines()
+                       if line.startswith("# theta_lg_k=")), None)
+    THETA_NOTE = f", theta lg_k = {theta_lg_k}" if theta_lg_k else ""
     k_values = sorted(df["K"].unique())
     target_js = sorted(df["TargetJ"].unique())
-    return COLOURS, LICENCE, NOMINAL, SKETCHES, df, k_values, mo, np, plt, results_dir, target_js
+    return COLOURS, LICENCE, NOMINAL, SKETCHES, THETA_NOTE, df, k_values, mo, np, plt, results_dir, stem, target_js, theta_lg_k
 
 
 @app.cell
@@ -79,7 +86,7 @@ def _(LICENCE, mo, np, plt, results_dir):
 
 
 @app.cell
-def _(SKETCHES, df, k_values, panels, save_svg, target_js):
+def _(SKETCHES, THETA_NOTE, df, k_values, panels, save_svg, stem, target_js):
     def _error_figure(target_j):
         fig, axes = panels(len(k_values))
         for ax, k in zip(axes, k_values):
@@ -99,10 +106,10 @@ def _(SKETCHES, df, k_values, panels, save_svg, target_js):
             ax.set_title(f"k = {k}")
             ax.set_xlabel("union size n")
         axes[0].set_ylabel("estimate − J")
-        fig.suptitle(f"Absolute error against n, J = {target_j:g}")
+        fig.suptitle(f"Absolute error against n, J = {target_j:g}{THETA_NOTE}")
         fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=4, fontsize=8)
         fig.tight_layout(rect=(0, 0.14, 1, 1))
-        return save_svg(fig, f"accuracy_n_error_j{round(target_j * 100)}.svg")
+        return save_svg(fig, f"{stem}_error_j{round(target_j * 100)}.svg")
 
     for _j in target_js:
         _error_figure(_j)
@@ -110,7 +117,7 @@ def _(SKETCHES, df, k_values, panels, save_svg, target_js):
 
 
 @app.cell
-def _(COLOURS, NOMINAL, df, k_values, panels, save_svg):
+def _(COLOURS, NOMINAL, df, k_values, panels, save_svg, stem):
     def _coverage_figure():
         fig, axes = panels(3)
         d5 = df[df["TargetJ"] == 0.5]
@@ -129,14 +136,14 @@ def _(COLOURS, NOMINAL, df, k_values, panels, save_svg):
         axes[0].set_ylabel("coverage at J = 0.5")
         fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=len(k_values) + 1, fontsize=8)
         fig.tight_layout(rect=(0, 0.16, 1, 1))
-        return save_svg(fig, "accuracy_n_coverage.svg")
+        return save_svg(fig, f"{stem}_coverage.svg")
 
     _coverage_figure()
     return
 
 
 @app.cell
-def _(df, k_values, panels, save_svg):
+def _(df, k_values, panels, save_svg, stem):
     def _memory_figure():
         fig, axes = panels(len(k_values))
         d5 = df[df["TargetJ"] == 0.5]  # theta A does not depend on J
@@ -151,14 +158,14 @@ def _(df, k_values, panels, save_svg):
         axes[0].set_ylabel("memory ratio")
         fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=2, fontsize=8)
         fig.tight_layout(rect=(0, 0.08, 1, 1))
-        return save_svg(fig, "accuracy_n_memory.svg")
+        return save_svg(fig, f"{stem}_memory.svg")
 
     _memory_figure()
     return
 
 
 @app.cell
-def _(LICENCE, df, k_values, mo, results_dir, target_js):
+def _(LICENCE, df, k_values, mo, results_dir, stem, target_js, theta_lg_k):
     def _spread(d, prefix):
         return d[f"{prefix}_AbsErr_Q0.97725"] - d[f"{prefix}_AbsErr_Q0.02275"]
 
@@ -166,7 +173,8 @@ def _(LICENCE, df, k_values, mo, results_dir, target_js):
         lines = [
             "# MinHash accuracy against set size, with theta",
             "",
-            "Written by `plots/accuracy_n.py` from `accuracy_n.tsv` (profile `minhash-accuracy-n`, MH-17).",
+            f"Written by `plots/accuracy_n.py` from `{stem}.tsv` (profile `minhash-{stem.replace('_', '-')}`, MH-17)."
+            + (f" Theta uses lg_k = {theta_lg_k}, where K is the MinHash k." if theta_lg_k else ""),
             "",
             "## End of the small-set region",
             "",
@@ -202,16 +210,16 @@ def _(LICENCE, df, k_values, mo, results_dir, target_js):
                 lines.append(f"| {k} | none | none |")
         lines += [
             "",
-            "- [Absolute error against n, J = 0.1](accuracy_n_error_j10.svg)",
-            "- [Absolute error against n, J = 0.5](accuracy_n_error_j50.svg)",
-            "- [Absolute error against n, J = 0.9](accuracy_n_error_j90.svg)",
-            "- [Coverage of the bounds against n](accuracy_n_coverage.svg)",
-            "- [Memory of theta A against MinHash](accuracy_n_memory.svg)",
+            f"- [Absolute error against n, J = 0.1]({stem}_error_j10.svg)",
+            f"- [Absolute error against n, J = 0.5]({stem}_error_j50.svg)",
+            f"- [Absolute error against n, J = 0.9]({stem}_error_j90.svg)",
+            f"- [Coverage of the bounds against n]({stem}_coverage.svg)",
+            f"- [Memory of theta A against MinHash]({stem}_memory.svg)",
             "",
         ]
         text = "\n".join(lines)
         if not mo.running_in_notebook():
-            (results_dir / "accuracy_n.md").write_text(f"<!--\n{LICENCE}\n-->\n\n{text}")
+            (results_dir / f"{stem}.md").write_text(f"<!--\n{LICENCE}\n-->\n\n{text}")
         return mo.md(text)
 
     _summary()

@@ -185,3 +185,45 @@ TEST_CASE("theta_compact_bytes is the serialized size of the compact sketch", "[
     }
   }
 }
+
+TEST_CASE("the accuracy_n_half smoke profile writes a complete, deterministic TSV", "[characterise]") {
+  std::ostringstream out;
+  characterise::accuracy_n_half(out, true);
+  std::istringstream lines(out.str());
+  std::string line;
+  std::vector<std::string> metadata;
+  std::vector<std::vector<std::string>> table;  // the header, then the data rows
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      metadata.push_back(line);
+    } else {
+      table.push_back(split_tabs(line));
+    }
+  }
+  REQUIRE(metadata.front() == "# profile=minhash-accuracy-n-half-smoke");
+  REQUIRE(metadata.back() == "# theta_lg_k=log2(K)-1");
+
+  // 8 fixed columns, 9 MinHash quantiles, 3 MinHash coverages, 2 theta columns, 9 theta
+  // quantiles, theta coverage, 4 theta size columns and MH_Bytes.
+  const std::size_t columns = 37;
+  REQUIRE(table.front().size() == columns);
+  REQUIRE(table.front().front() == "K");
+  REQUIRE(table.front().back() == "MH_Bytes");
+
+  // One row for each (k, m, n) with 0 < (n m) / 10 < n.
+  std::size_t rows_per_k = 0;
+  for (const unsigned m : {1U, 5U, 9U}) {
+    for (const uint64_t n : characterise::pwr_2_law_points(2, 4096, 4)) {
+      rows_per_k += (n * m / 10 > 0 && n * m / 10 < n) ? 1 : 0;
+    }
+  }
+  REQUIRE(table.size() == 1 + 2 * rows_per_k);
+  for (std::size_t r = 1; r < table.size(); ++r) {
+    REQUIRE(table[r].size() == columns);
+    REQUIRE(table[r][0] == (r <= rows_per_k ? "64" : "256"));
+  }
+
+  std::ostringstream again;
+  characterise::accuracy_n_half(again, true);
+  REQUIRE(again.str() == out.str());
+}
