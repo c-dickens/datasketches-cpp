@@ -30,8 +30,34 @@ in {0.01, 0.02 … 0.99}, the profile makes 4096 trials. Each trial uses a
 different sketch seed. It compares two sets with an exactly known J, and it
 records the estimate, the error, and the interval from `jaccard_bounds()`.
 
-The theory says that the estimate is unbiased, and that its standard deviation
-(SD) is √(J(1 − J)/k).
+## Theory
+
+**The model.** Assume that the k slots act as independent random hash
+functions. Then each slot matches with probability J, and the number of
+matching slots M has a Binomial(k, J) distribution. The estimate is Ĵ = M/k. So:
+
+- the mean of Ĵ is exactly J: the estimate has no bias;
+- the standard deviation (SD) of Ĵ is √(J(1 − J)/k);
+- Ĵ can take only the k + 1 values 0, 1/k … 1.
+
+The MH-6 statistical tests check the assumption of independent slots.
+
+**What each plot should show.**
+
+| Plot | Expected result | Expected deviation, and why |
+|---|---|---|
+| Absolute error | The ±z σ bands are on the dashed lines ±z √(J(1 − J)/k). The width is largest at J = 0.5. Each step from k to 4k halves it. | When kJ or k(1 − J) is small, the bands are asymmetric. Example: at k = 16 and J = 0.01, about 85 % of trials have no match, so the median error is exactly −J. |
+| Normalised error | The error (M − kJ)/√(kJ(1 − J)) is standard normal when kJ(1 − J) is large (about 10 or more). The 7 quantile lines are on −3 … 3. | When kJ(1 − J) is small, the error is discrete and skewed (skewness (1 − 2J)/√(kJ(1 − J))). Its lowest possible value is −√(kJ/(1 − J)): −0.40 at k = 16 and J = 0.01. |
+| Coverage | The coverage is at the nominal rate or above it. | `jaccard_bounds()` uses `bounds_binomial_proportions`, an approximation of the Clopper–Pearson interval. Each bound has a tail probability δ = Φ(−s), so the nominal two-sided coverage is 1 − 2δ. Exact Clopper–Pearson intervals are conservative, and M is discrete, so the coverage is above nominal at small k and at J near 0 or 1. Against J, the coverage is a sawtooth. The library approximates the interval, so its coverage can also be a little below nominal. |
+
+**Noise from 4096 trials.** The profile measures each value from 4096 trials,
+so each measured value has a random error of its own:
+
+| Value | Expected range |
+|---|---|
+| BiasOverSE | about N(0, 1) at each point. With 495 independent points, the largest size would be about 3 to 3.5. The points share their trials, so they are not independent. |
+| SDRatio | 1 ± 0.033 (3 × the relative standard error 1/√(2 × 4096)). |
+| Cover1SD, Cover2SD, Cover3SD | the coverage ± 3 × 0.73, 0.33 and 0.08 points (the binomial standard error at the nominal rate). |
 
 ## 1. Absolute error (`accuracy_j_error.svg`)
 
@@ -106,9 +132,9 @@ error is 0.73 points at 1 SD, 0.33 points at 2 SD and 0.08 points at 3 SD.
 - At small k, the bounds are wider than necessary. At 2 SD, the mean coverage
   is 98.3 % at k = 16 and 97.2 % at k = 64, against a nominal 95.45 %. The
   effect is largest for J below 0.1 or above 0.9.
-- The cause is the method. `jaccard_bounds()` uses the approximate binomial
-  bounds of the theta sketch (`bounds_binomial_proportions`). These bounds are
-  conservative when k is small or J is near 0 or 1.
+- The cause is the method. `jaccard_bounds()` approximates the Clopper–Pearson
+  interval, which is conservative when M is discrete: at small k, and at J
+  near 0 or 1. See "Theory".
 - As k increases, the coverage comes down to the nominal rate. At k = 4096 the
   mean coverage is 69.4 %, 95.7 % and 99.73 %, against 68.27 %, 95.45 % and
   99.73 %.
