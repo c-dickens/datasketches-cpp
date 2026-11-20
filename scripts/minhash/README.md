@@ -145,6 +145,47 @@ scripts/minhash/vectors/.venv/bin/python scripts/minhash/vectors/band_keys.py
 The last line must be `xxhash 3.5.0 - all 15 band keys match SPEC.md`. If a key does not
 match, the script exits with status 1.
 
+## Characterisation
+
+The characterisation harness measures the sketch, in the style of
+[apache/datasketches-characterization](https://github.com/apache/datasketches-characterization).
+It reports only. It has no PASS or FAIL. The statistical tests stay the
+correctness gate.
+
+```bash
+./run_characterisation.sh         # the full profiles, into results/characterisation/
+./run_characterisation.sh smoke   # the smoke profiles, into results/characterisation/smoke/
+```
+
+The script builds in `build-characterise/` (Release). It runs each profile with
+`build-characterise/minhash_characterise <profile-name>`, and then plots the
+results with `uv run plots/<name>.py <results dir>`. All parameters are
+constants in the source code. Git ignores the smoke results. The full results
+are committed.
+
+| Profile | What it measures | Full run |
+|---|---|---|
+| `minhash-accuracy-j` | The error of the Jaccard estimate against the true J, for k = 16 to 4096 | 112 s |
+| `minhash-accuracy-j-smoke` | The same, with k ≤ 256, 256 trials and a coarse J grid | less than 1 s |
+
+The run time is for an Apple M4 laptop, not counting the build.
+
+`minhash-accuracy-j` writes these files:
+
+- `accuracy_j.tsv`: one row for each (k, J), with the mean bias, the measured
+  SD against the theory SD, the quantiles of the absolute and the normalised
+  error, and the coverage of `jaccard_bounds()` at 1, 2 and 3 SD. The `#` lines
+  give the commit, the compiler, the build flags and the constants.
+- `accuracy_j_error.svg`, `accuracy_j_normalised.svg` and
+  `accuracy_j_coverage.svg`: the plots.
+- `accuracy_j.md`: a summary for each k, with links to the plots.
+
+To open a plot notebook interactively:
+
+```bash
+uvx marimo edit plots/accuracy_j.py
+```
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
