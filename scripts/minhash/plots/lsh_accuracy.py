@@ -182,7 +182,8 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
             d = df[df["K"] == k]
             n = d["Trials"]
             # As lsh_theory_rate(), not the printed value: 1 - (1 - J^R)^B in the stable form.
-            p = -np.expm1(d["B"] * np.log1p(-np.power(d["TrueJ"], d["R"])))
+            with np.errstate(divide="ignore"):  # log1p(-1) = -inf at J = 1 gives p = 1, as in C++
+                p = -np.expm1(d["B"] * np.log1p(-np.power(d["TrueJ"], d["R"])))
             inner = (p > 0) & (p < 1)
             normal = inner & (n * p >= 20) & (n * (1 - p) >= 20)
             small = d[inner & ~normal]

@@ -38,9 +38,9 @@ The rows are not independent: every grid point uses the same trials, and each B 
 
 | k | rows | normal rows | max abs(CandidateZ) | small-count rows | smallest exact p | exact rows | NA rows |
 |---|---|---|---|---|---|---|---|
-| 64 | 707 | 213 | 2.183 | 312 | 0.02563 | 182 | 0 |
-| 128 | 808 | 195 | 3.203 | 312 | 0.006622 | 301 | 0 |
-| 256 | 909 | 177 | 2.872 | 302 | 0.03104 | 430 | 0 |
+| 64 | 707 | 213 | 2.183 | 407 | 0.02563 | 87 | 0 |
+| 128 | 808 | 195 | 3.203 | 481 | 0.006622 | 132 | 0 |
+| 256 | 909 | 177 | 2.872 | 552 | 0.03104 | 180 | 0 |
 
 ## Guidance: choose (b, r) for a threshold t
 
