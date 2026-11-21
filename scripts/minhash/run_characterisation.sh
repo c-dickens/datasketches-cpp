@@ -55,3 +55,5 @@ run_profile "minhash-accuracy-n$suffix" accuracy_n.tsv
 uv run plots/accuracy_n.py "$out"
 run_profile "minhash-accuracy-n-half$suffix" accuracy_n_half.tsv
 uv run plots/accuracy_n.py "$out" accuracy_n_half
+run_profile "minhash-lsh-accuracy$suffix" lsh_accuracy.tsv
+uv run plots/lsh_accuracy.py "$out"

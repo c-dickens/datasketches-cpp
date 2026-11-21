@@ -75,6 +75,13 @@ bool in_b(uint64_t x, unsigned m);
 /// where r = a.get_num_retained().
 uint64_t theta_compact_bytes(const datasketches::update_theta_sketch& a);
 
+/// True when the two key lists are equal in at least one position (band).
+/// Throws std::invalid_argument if the sizes differ.
+bool lsh_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b);
+
+/// 1 - (1 - j^r)^b.
+double lsh_theory_rate(double j, unsigned r, unsigned b);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_COMMON_HPP_
