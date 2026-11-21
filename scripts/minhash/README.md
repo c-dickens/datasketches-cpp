@@ -171,6 +171,8 @@ are committed.
 | `minhash-accuracy-n-smoke` | The same, with k ≤ 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
 | `minhash-accuracy-n-half` | The same as `minhash-accuracy-n`, with theta at half the nominal k (lg_k = log2(k) − 1), so that theta never uses more memory than MinHash. k = 64 to 4096 | 33 min |
 | `minhash-accuracy-n-half-smoke` | The same, with k = 64 and 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
+| `minhash-lsh-accuracy` | The LSH candidate rate against the theory 1 − (1 − J^r)^b, and the reported rate (candidate and estimated J ≥ t, at t = 0.5, 0.7 and 0.9), for k = 64, 128 and 256 and every power-of-2 b, at J = 0 to 1 in steps of 0.01 | 14 s |
+| `minhash-lsh-accuracy-smoke` | The same, with k = 64 and 128, 256 trials and J in steps of 0.05 | 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -197,6 +199,16 @@ The run time is for an Apple M4 laptop, not counting the build.
 
 `minhash-accuracy-n-half` writes the same files, with the stem `accuracy_n_half`
 in place of `accuracy_n`. Its TSV has the line `# theta_lg_k=log2(K)-1`.
+
+`minhash-lsh-accuracy` writes these files:
+
+- `lsh_accuracy.tsv`: one row for each (k, b, J), with the candidate rate, the
+  theory rate, their z-score, and the reported rate at each threshold t.
+- `lsh_scurve_k64.svg`, `lsh_scurve_k128.svg`, `lsh_scurve_k256.svg` and
+  `lsh_reported_k128.svg`: the plots.
+- `lsh_accuracy.md`: the largest z-score for each k, and a guidance table for
+  each (k, b, r, t): the J where the reported rate reaches 0.5, the reported rate
+  at J = t − 0.1 and the miss rate at J = t + 0.1.
 
 To open a plot notebook interactively:
 

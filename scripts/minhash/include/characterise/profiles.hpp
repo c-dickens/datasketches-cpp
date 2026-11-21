@@ -39,6 +39,10 @@ void accuracy_n(std::ostream& out, bool smoke);
 /// more memory than MinHash (MH-17).
 void accuracy_n_half(std::ostream& out, bool smoke);
 
+/// The LSH candidate rate against the theory 1 - (1 - J^r)^b, and the reported rate
+/// (candidate and estimated J >= t), for every power-of-2 b that divides k (MH-19).
+void lsh_accuracy(std::ostream& out, bool smoke);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_PROFILES_HPP_
