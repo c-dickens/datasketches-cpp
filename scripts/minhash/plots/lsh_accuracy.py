@@ -113,8 +113,8 @@ def _(REPORTED_K, THRESHOLDS, colours, df, plt, save_svg):
             ax.set_title(f"t = {t}")
             ax.set_xlabel("true J")
         axes[0].set_ylabel("reported rate")
-        fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=len(bands), fontsize=8)
-        fig.tight_layout(rect=(0, 0.1, 1, 1))
+        fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center", ncol=4, fontsize=8)
+        fig.tight_layout(rect=(0, 0.14, 1, 1))
         return save_svg(fig, f"lsh_reported_k{REPORTED_K}.svg")
 
     _reported_figure()
