@@ -136,6 +136,13 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
             return j[0]
         return j[i - 1] + (0.5 - rate[i - 1]) * (j[i] - j[i - 1]) / (rate[i] - rate[i - 1])
 
+    def _exact_p(x, n, p):
+        """Two-sided exact binomial p-value of x candidates in n trials: 2 min(P(X ≤ x), P(X ≥ x)), at most 1."""
+        log_fact = np.concatenate(([0.0], np.cumsum(np.log(np.arange(1, n + 1)))))
+        i = np.arange(n + 1)
+        pmf = np.exp(log_fact[n] - log_fact[i] - log_fact[n - i] + i * np.log(p) + (n - i) * np.log1p(-p))
+        return min(1.0, 2 * min(pmf[: x + 1].sum(), pmf[x:].sum()))
+
     def _summary():
         lines = [
             "# LSH accuracy: the S-curve and the reported rate",
@@ -144,15 +151,33 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
             "",
             "## Candidate rate against the theory",
             "",
-            "CandidateZ = (CandidateRate − TheoryRate) / √(TheoryRate (1 − TheoryRate) / Trials).",
-            "NA rows have a theory rate of exactly 0 or 1 and a different measured rate (expected: 0).",
+            "Each row has n = Trials and p = TheoryRate. The rows are in three groups:",
             "",
-            "| k | rows | max abs(CandidateZ) | NA rows |",
-            "|---|---|---|---|",
+            "- normal rows: n p ≥ 20 and n (1 − p) ≥ 20. The z-score",
+            "  CandidateZ = (CandidateRate − p) / √(p (1 − p) / n) is valid here.",
+            "- small-count rows: 0 < p < 1, but n p < 20 or n (1 − p) < 20. The normal approximation fails,",
+            "  so the table gives the smallest exact two-sided binomial p-value. With m rows, a value near 1/m is normal.",
+            "- exact rows: p is exactly 0 or 1. NA rows are exact rows where the measured rate differs (expected: 0).",
+            "",
+            "The rows are not independent: every grid point uses the same trials, and each B is a prefix of the next.",
+            "",
+            "| k | rows | normal rows | max abs(CandidateZ) | small-count rows | smallest exact p | exact rows | NA rows |",
+            "|---|---|---|---|---|---|---|---|",
         ]
         for k in k_values:
             d = df[df["K"] == k]
-            lines.append(f"| {k} | {len(d)} | {d['CandidateZ'].abs().max():.3f} | {d['CandidateZ'].isna().sum()} |")
+            n, p = d["Trials"], d["TheoryRate"]
+            inner = (p > 0) & (p < 1)
+            normal = inner & (n * p >= 20) & (n * (1 - p) >= 20)
+            small = d[inner & ~normal]
+            smallest_p = min(
+                _exact_p(round(row.CandidateRate * row.Trials), int(row.Trials), row.TheoryRate)
+                for row in small.itertuples()
+            ) if len(small) else float("nan")
+            lines.append(
+                f"| {k} | {len(d)} | {normal.sum()} | {d.loc[normal, 'CandidateZ'].abs().max():.3f}"
+                f" | {len(small)} | {smallest_p:.4g} | {(~inner).sum()} | {d['CandidateZ'].isna().sum()} |"
+            )
         lines += [
             "",
             "## Guidance: choose (b, r) for a threshold t",

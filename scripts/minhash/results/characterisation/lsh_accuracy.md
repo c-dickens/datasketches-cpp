@@ -23,14 +23,21 @@ Written by `plots/lsh_accuracy.py` from `lsh_accuracy.tsv` (profile `minhash-lsh
 
 ## Candidate rate against the theory
 
-CandidateZ = (CandidateRate − TheoryRate) / √(TheoryRate (1 − TheoryRate) / Trials).
-NA rows have a theory rate of exactly 0 or 1 and a different measured rate (expected: 0).
+Each row has n = Trials and p = TheoryRate. The rows are in three groups:
 
-| k | rows | max abs(CandidateZ) | NA rows |
-|---|---|---|---|
-| 64 | 707 | 2.752 | 0 |
-| 128 | 808 | 3.214 | 0 |
-| 256 | 909 | 2.872 | 0 |
+- normal rows: n p ≥ 20 and n (1 − p) ≥ 20. The z-score
+  CandidateZ = (CandidateRate − p) / √(p (1 − p) / n) is valid here.
+- small-count rows: 0 < p < 1, but n p < 20 or n (1 − p) < 20. The normal approximation fails,
+  so the table gives the smallest exact two-sided binomial p-value. With m rows, a value near 1/m is normal.
+- exact rows: p is exactly 0 or 1. NA rows are exact rows where the measured rate differs (expected: 0).
+
+The rows are not independent: every grid point uses the same trials, and each B is a prefix of the next.
+
+| k | rows | normal rows | max abs(CandidateZ) | small-count rows | smallest exact p | exact rows | NA rows |
+|---|---|---|---|---|---|---|---|
+| 64 | 707 | 213 | 2.183 | 283 | 0.02563 | 211 | 0 |
+| 128 | 808 | 195 | 3.203 | 284 | 0.006622 | 329 | 0 |
+| 256 | 909 | 177 | 2.872 | 277 | 0.03104 | 455 | 0 |
 
 ## Guidance: choose (b, r) for a threshold t
 

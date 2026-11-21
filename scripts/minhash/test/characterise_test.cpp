@@ -244,6 +244,57 @@ TEST_CASE("lsh_theory_rate is 1 - (1 - j^r)^b", "[characterise]") {
   REQUIRE(characterise::lsh_theory_rate(1.0, 4, 32) == 1.0);
 }
 
+TEST_CASE("the lsh_accuracy smoke profile writes a complete, deterministic TSV", "[characterise]") {
+  std::ostringstream out;
+  characterise::lsh_accuracy(out, true);
+  std::istringstream lines(out.str());
+  std::string line;
+  std::vector<std::string> metadata;
+  std::vector<std::vector<std::string>> table;  // the header, then the data rows
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      metadata.push_back(line);
+    } else {
+      table.push_back(split_tabs(line));
+    }
+  }
+  REQUIRE(metadata.front() == "# profile=minhash-lsh-accuracy-smoke");
+  REQUIRE(metadata[metadata.size() - 2] == "# k_values=64,128");
+  REQUIRE(metadata.back() == "# thresholds=0.5,0.7,0.9");
+  REQUIRE(table.front() == std::vector<std::string>{"K", "B", "R", "TrueJ", "Trials", "CandidateRate", "TheoryRate",
+                                                    "CandidateZ", "ReportedRate_t0.5", "ReportedRate_t0.7",
+                                                    "ReportedRate_t0.9"});
+
+  // One row for each (k, b, J): k = 64, 128; b = 1, 2, ..., k; J = j / 20, j = 0 ... 20.
+  std::size_t r = 1;
+  for (const unsigned k : {64U, 128U}) {
+    for (unsigned b = 1; b <= k; b *= 2) {
+      for (unsigned j = 0; j <= 20; ++j, ++r) {
+        REQUIRE(r < table.size());
+        const auto& row = table[r];
+        REQUIRE(row.size() == table.front().size());
+        REQUIRE(std::stoul(row[0]) == k);
+        REQUIRE(std::stoul(row[1]) == b);
+        REQUIRE(std::stoul(row[2]) == k / b);
+        REQUIRE(std::stod(row[3]) == Approx(j / 20.0).margin(1e-12));
+        REQUIRE(row[4] == "256");
+        // J = 0 is never a candidate, and J = 1 (identical sketches) always is.
+        if (j == 0) {
+          REQUIRE(row[5] == "0");
+        }
+        if (j == 20) {
+          REQUIRE(row[5] == "1");
+        }
+      }
+    }
+  }
+  REQUIRE(r == table.size());  // 315 data rows: (7 + 8) b values x 21 J points
+
+  std::ostringstream again;
+  characterise::lsh_accuracy(again, true);
+  REQUIRE(again.str() == out.str());
+}
+
 TEST_CASE("lsh accuracy: the index finds the band-key candidates", "[characterise]") {
   using index = datasketches::minhash_lsh_index;
   constexpr uint64_t unrelated = 150;
