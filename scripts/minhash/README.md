@@ -169,7 +169,7 @@ are committed.
 | `minhash-accuracy-j-smoke` | The same, with k ≤ 256, 256 trials and a coarse J grid | less than 1 s |
 | `minhash-accuracy-n` | The MinHash and theta Jaccard error against the union size n, from 2 to 65536, at J = 0.1, 0.5 and 0.9, for k = 16 to 4096, with the theta memory against MinHash | 36 min |
 | `minhash-accuracy-n-smoke` | The same, with k ≤ 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
-| `minhash-accuracy-n-half` | The same as `minhash-accuracy-n`, with theta at half the nominal k (lg_k = log2(k) − 1), so that theta never uses more memory than MinHash. k = 64 to 4096 | RUNTIME |
+| `minhash-accuracy-n-half` | The same as `minhash-accuracy-n`, with theta at half the nominal k (lg_k = log2(k) − 1), so that theta never uses more memory than MinHash. k = 64 to 4096 | 33 min |
 | `minhash-accuracy-n-half-smoke` | The same, with k = 64 and 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
