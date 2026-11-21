@@ -26,6 +26,7 @@
 
 import marimo
 
+__generated_with = "0.25.2"
 app = marimo.App()
 
 
@@ -53,7 +54,17 @@ def _():
     results_dir = Path(args[0]) if args and not mo.running_in_notebook() else Path("results/characterisation")
     df = pd.read_csv(results_dir / "lsh_accuracy.tsv", sep="\t", comment="#")  # "NA" reads as NaN
     k_values = sorted(df["K"].unique())
-    return LICENCE, REPORTED_K, THRESHOLDS, df, k_values, mo, np, plt, results_dir
+    return (
+        LICENCE,
+        REPORTED_K,
+        THRESHOLDS,
+        df,
+        k_values,
+        mo,
+        np,
+        plt,
+        results_dir,
+    )
 
 
 @app.cell
@@ -208,6 +219,19 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
         return mo.md(text)
 
     _summary()
+    return
+
+
+@app.cell
+def _(df):
+    df[(df.K == 128) & (df.B == 32)]                        # one S-curve, row by row
+    df[df.CandidateZ.abs() > 2.5]                           # the outlier rows
+    df[df.TheoryRate.between(0.2, 0.8)].CandidateZ.describe()   # z-scores where they are reliable
+    return
+
+
+@app.cell
+def _():
     return
 
 
