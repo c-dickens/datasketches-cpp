@@ -148,3 +148,84 @@ TEST_CASE("a copy saved from the stream after i items is the sketch of [0, i)", 
     REQUIRE(copies[c].get_signature() == fresh.get_signature());
   }
 }
+
+TEST_CASE("pwr_2_law_points gives the power-law grid from start to end", "[characterise]") {
+  REQUIRE(characterise::pwr_2_law_points(2, 64, 1) == std::vector<uint64_t>{2, 4, 8, 16, 32, 64});
+  // A start that is not on the grid must not skip the next grid point (4).
+  REQUIRE(characterise::pwr_2_law_points(3, 64, 1) == std::vector<uint64_t>{3, 4, 8, 16, 32, 64});
+  const auto points = characterise::pwr_2_law_points(2, 65536, 16);
+  REQUIRE(points.front() == 2);
+  REQUIRE(points.back() == 65536);
+  for (std::size_t i = 1; i < points.size(); ++i) {
+    REQUIRE(points[i] > points[i - 1]);
+  }
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(0, 64, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(8, 4, 1), std::invalid_argument);
+  REQUIRE_THROWS_AS(characterise::pwr_2_law_points(2, 64, 0), std::invalid_argument);
+}
+
+TEST_CASE("in_b puts (n m) / 10 of the first n items in B", "[characterise]") {
+  for (const uint64_t n : {1, 2, 10, 17, 1000}) {
+    for (const unsigned m : {1U, 5U, 9U}) {
+      uint64_t count = 0;
+      for (uint64_t x = 0; x < n; ++x) {
+        count += characterise::in_b(x, m) ? 1 : 0;
+      }
+      REQUIRE(count == n * m / 10);
+    }
+  }
+}
+
+TEST_CASE("theta_compact_bytes is the serialized size of the compact sketch", "[characterise]") {
+  for (const uint8_t lg_k : {4, 12}) {
+    for (const uint64_t n : {1, 2, 100, 10000}) {
+      auto a = datasketches::update_theta_sketch::builder().set_lg_k(lg_k).build();
+      for (uint64_t x = 0; x < n; ++x) {
+        a.update(x);
+      }
+      REQUIRE(characterise::theta_compact_bytes(a) == a.compact().get_serialized_size_bytes());
+    }
+  }
+}
+
+TEST_CASE("the accuracy_n_half smoke profile writes a complete, deterministic TSV", "[characterise]") {
+  std::ostringstream out;
+  characterise::accuracy_n_half(out, true);
+  std::istringstream lines(out.str());
+  std::string line;
+  std::vector<std::string> metadata;
+  std::vector<std::vector<std::string>> table;  // the header, then the data rows
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      metadata.push_back(line);
+    } else {
+      table.push_back(split_tabs(line));
+    }
+  }
+  REQUIRE(metadata.front() == "# profile=minhash-accuracy-n-half-smoke");
+  REQUIRE(metadata.back() == "# theta_lg_k=log2(K)-1");
+
+  // 8 fixed columns, 9 MinHash quantiles, 3 MinHash coverages, 2 theta columns, 9 theta
+  // quantiles, theta coverage, 4 theta size columns and MH_Bytes.
+  const std::size_t columns = 37;
+  REQUIRE(table.front().size() == columns);
+  REQUIRE(table.front().front() == "K");
+  REQUIRE(table.front().back() == "MH_Bytes");
+
+  // One row for each (k, m, n) with 0 < (n m) / 10 < n.
+  std::size_t rows_per_k = 0;
+  for (const unsigned m : {1U, 5U, 9U}) {
+    for (const uint64_t n : characterise::pwr_2_law_points(2, 4096, 4)) {
+      rows_per_k += (n * m / 10 > 0 && n * m / 10 < n) ? 1 : 0;
+    }
+  }
+  REQUIRE(table.size() == 1 + 2 * rows_per_k);
+  for (std::size_t r = 1; r < table.size(); ++r) {
+    REQUIRE(table[r].size() == columns);
+    REQUIRE(table[r][0] == (r <= rows_per_k ? "64" : "256"));
+  }
+
+  std::ostringstream again;
+  characterise::accuracy_n_half(again, true);
+  REQUIRE(again.str() == out.str());
+}
