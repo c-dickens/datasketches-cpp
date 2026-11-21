@@ -162,15 +162,16 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
             "",
             "## Candidate rate against the theory",
             "",
-            "Each row has n = Trials and p = TheoryRate. The rows are in three groups:",
+            "Each row has n = Trials and p = 1 − (1 − J^R)^B, computed again here at full precision, because the TSV",
+            "prints TheoryRate with 10 digits. The rows are in three groups:",
             "",
             "- normal rows: n p ≥ 20 and n (1 − p) ≥ 20. The z-score",
             "  CandidateZ = (CandidateRate − p) / √(p (1 − p) / n) is valid here.",
             "- small-count rows: 0 < p < 1, but n p < 20 or n (1 − p) < 20. The normal approximation fails,",
             "  so the table gives the smallest exact two-sided binomial p-value. With m rows, a value near 1/m is normal.",
             "- exact rows: p is 0 or 1 in double precision. It is exactly 0 or 1 only at J = 0 and J = 1. In the other",
-            "  rows, the true p is within about 1e-16 of 0 or 1. NA rows are exact rows where the measured rate differs",
-            "  (expected: 0).",
+            "  rows, the true p is within about 1e-16 of 0 or 1. These are the rows where the profile writes CandidateZ",
+            "  as 0 or NA. NA rows are exact rows where the measured rate differs (expected: 0).",
             "",
             "The rows are not independent: every grid point uses the same trials, and each B is a prefix of the next.",
             "",
@@ -179,13 +180,14 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
         ]
         for k in k_values:
             d = df[df["K"] == k]
-            n, p = d["Trials"], d["TheoryRate"]
+            n = d["Trials"]
+            p = 1 - (1 - np.power(d["TrueJ"], d["R"])) ** d["B"]  # as lsh_theory_rate(), not the printed value
             inner = (p > 0) & (p < 1)
             normal = inner & (n * p >= 20) & (n * (1 - p) >= 20)
             small = d[inner & ~normal]
             smallest_p = min(
-                _exact_p(round(row.CandidateRate * row.Trials), int(row.Trials), row.TheoryRate)
-                for row in small.itertuples()
+                _exact_p(round(rate * trials), int(trials), theory)
+                for rate, trials, theory in zip(small["CandidateRate"], small["Trials"], p[small.index])
             ) if len(small) else float("nan")
             lines.append(
                 f"| {k} | {len(d)} | {normal.sum()} | {d.loc[normal, 'CandidateZ'].abs().max():.3f}"

@@ -23,23 +23,24 @@ Written by `plots/lsh_accuracy.py` from `lsh_accuracy.tsv` (profile `minhash-lsh
 
 ## Candidate rate against the theory
 
-Each row has n = Trials and p = TheoryRate. The rows are in three groups:
+Each row has n = Trials and p = 1 − (1 − J^R)^B, computed again here at full precision, because the TSV
+prints TheoryRate with 10 digits. The rows are in three groups:
 
 - normal rows: n p ≥ 20 and n (1 − p) ≥ 20. The z-score
   CandidateZ = (CandidateRate − p) / √(p (1 − p) / n) is valid here.
 - small-count rows: 0 < p < 1, but n p < 20 or n (1 − p) < 20. The normal approximation fails,
   so the table gives the smallest exact two-sided binomial p-value. With m rows, a value near 1/m is normal.
 - exact rows: p is 0 or 1 in double precision. It is exactly 0 or 1 only at J = 0 and J = 1. In the other
-  rows, the true p is within about 1e-16 of 0 or 1. NA rows are exact rows where the measured rate differs
-  (expected: 0).
+  rows, the true p is within about 1e-16 of 0 or 1. These are the rows where the profile writes CandidateZ
+  as 0 or NA. NA rows are exact rows where the measured rate differs (expected: 0).
 
 The rows are not independent: every grid point uses the same trials, and each B is a prefix of the next.
 
 | k | rows | normal rows | max abs(CandidateZ) | small-count rows | smallest exact p | exact rows | NA rows |
 |---|---|---|---|---|---|---|---|
-| 64 | 707 | 213 | 2.183 | 283 | 0.02563 | 211 | 0 |
-| 128 | 808 | 195 | 3.203 | 284 | 0.006622 | 329 | 0 |
-| 256 | 909 | 177 | 2.872 | 277 | 0.03104 | 455 | 0 |
+| 64 | 707 | 213 | 2.183 | 312 | 0.02563 | 182 | 0 |
+| 128 | 808 | 195 | 3.203 | 312 | 0.006622 | 301 | 0 |
+| 256 | 909 | 177 | 2.872 | 302 | 0.03104 | 430 | 0 |
 
 ## Guidance: choose (b, r) for a threshold t
 
