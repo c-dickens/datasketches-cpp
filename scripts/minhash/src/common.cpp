@@ -91,4 +91,21 @@ uint64_t theta_compact_bytes(const datasketches::update_theta_sketch& a) {
   return r == 1 ? 16 : 16 + 8 * r;
 }
 
+bool lsh_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b) {
+  if (keys_a.size() != keys_b.size()) {
+    throw std::invalid_argument("lsh_candidate: the key lists differ in size");
+  }
+  for (std::size_t band = 0; band < keys_a.size(); ++band) {
+    if (keys_a[band] == keys_b[band]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+double lsh_theory_rate(double j, unsigned r, unsigned b) {
+  // -expm1(b log1p(-j^r)) is 1 - (1 - j^r)^b without the cancellation when j^r is small.
+  return -std::expm1(static_cast<double>(b) * std::log1p(-std::pow(j, r)));
+}
+
 }  // namespace characterise

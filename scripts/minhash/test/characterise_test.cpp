@@ -30,6 +30,7 @@
 #include "characterise/common.hpp"
 #include "characterise/profiles.hpp"
 #include "common_defs.hpp"
+#include "minhash_lsh.hpp"
 #include "minhash_sketch.hpp"
 
 // REQUIRE(!x) instead of REQUIRE_FALSE(x): the Catch2 v2 flags of REQUIRE_FALSE make
@@ -228,4 +229,112 @@ TEST_CASE("the accuracy_n_half smoke profile writes a complete, deterministic TS
   std::ostringstream again;
   characterise::accuracy_n_half(again, true);
   REQUIRE(again.str() == out.str());
+}
+
+TEST_CASE("lsh_candidate is true when the keys are equal in at least one band", "[characterise]") {
+  REQUIRE(characterise::lsh_candidate({1, 2, 3}, {4, 2, 6}));
+  REQUIRE(!characterise::lsh_candidate({1, 2, 3}, {4, 5, 6}));
+  REQUIRE_THROWS_AS(characterise::lsh_candidate({1, 2}, {1, 2, 3}), std::invalid_argument);
+}
+
+TEST_CASE("lsh_theory_rate is 1 - (1 - j^r)^b", "[characterise]") {
+  // 1 - (1 - 0.5^4)^32 = 1 - 0.9375^32
+  REQUIRE(characterise::lsh_theory_rate(0.5, 4, 32) == Approx(0.873211).margin(1e-6));
+  REQUIRE(characterise::lsh_theory_rate(0.0, 4, 32) == 0.0);
+  REQUIRE(characterise::lsh_theory_rate(1.0, 4, 32) == 1.0);
+  // Small j^r: 1 - (1 - 0.75^64)^4 = 4.03627587217052671e-8 (60-digit decimal). The direct form
+  // 1 - (1 - x)^b cancels and is wrong in the 9th digit here.
+  REQUIRE(characterise::lsh_theory_rate(0.75, 64, 4) == Approx(4.03627587217052671e-8).epsilon(1e-12));
+}
+
+TEST_CASE("the lsh_accuracy smoke profile writes a complete, deterministic TSV", "[characterise]") {
+  std::ostringstream out;
+  characterise::lsh_accuracy(out, true);
+  std::istringstream lines(out.str());
+  std::string line;
+  std::vector<std::string> metadata;
+  std::vector<std::vector<std::string>> table;  // the header, then the data rows
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      metadata.push_back(line);
+    } else {
+      table.push_back(split_tabs(line));
+    }
+  }
+  REQUIRE(metadata.front() == "# profile=minhash-lsh-accuracy-smoke");
+  REQUIRE(metadata[metadata.size() - 2] == "# k_values=64,128");
+  REQUIRE(metadata.back() == "# thresholds=0.5,0.7,0.9");
+  REQUIRE(table.front() == std::vector<std::string>{"K", "B", "R", "TrueJ", "Trials", "CandidateRate", "TheoryRate",
+                                                    "CandidateZ", "ReportedRate_t0.5", "ReportedRate_t0.7",
+                                                    "ReportedRate_t0.9"});
+
+  // One row for each (k, b, J): k = 64, 128; b = 1, 2, ..., k; J = j / 20, j = 0 ... 20.
+  std::size_t r = 1;
+  for (const unsigned k : {64U, 128U}) {
+    for (unsigned b = 1; b <= k; b *= 2) {
+      for (unsigned j = 0; j <= 20; ++j, ++r) {
+        REQUIRE(r < table.size());
+        const auto& row = table[r];
+        REQUIRE(row.size() == table.front().size());
+        REQUIRE(std::stoul(row[0]) == k);
+        REQUIRE(std::stoul(row[1]) == b);
+        REQUIRE(std::stoul(row[2]) == k / b);
+        REQUIRE(std::stod(row[3]) == Approx(j / 20.0).margin(1e-12));
+        REQUIRE(row[4] == "256");
+        // J = 0 is never a candidate, and J = 1 (identical sketches) always is.
+        if (j == 0) {
+          REQUIRE(row[5] == "0");
+        }
+        if (j == 20) {
+          REQUIRE(row[5] == "1");
+        }
+      }
+    }
+  }
+  REQUIRE(r == table.size());  // 315 data rows: (7 + 8) b values x 21 J points
+
+  std::ostringstream again;
+  characterise::lsh_accuracy(again, true);
+  REQUIRE(again.str() == out.str());
+}
+
+TEST_CASE("lsh accuracy: the index finds the band-key candidates", "[characterise]") {
+  using index = datasketches::minhash_lsh_index;
+  constexpr uint64_t unrelated = 150;
+  constexpr uint64_t documents = 200;
+  constexpr uint64_t group_size = 5;
+  std::vector<datasketches::minhash_sketch> sketches;
+  for (uint64_t d = 0; d < documents; ++d) {
+    auto s = datasketches::minhash_sketch::builder().set_k(128).set_seed(datasketches::DEFAULT_SEED).build();
+    // Documents 0 to 149: [1000 d, 1000 d + 100). Documents 150 to 199: 10 groups of 5. Member m of
+    // group g is document g with the items [1000 g + 10 m, + 10) moved to [10^9 + 1000 g + 10 m, + 10).
+    const bool member = d >= unrelated;
+    const uint64_t base = member ? (d - unrelated) / group_size : d;
+    const uint64_t moved = 1000 * base + (member ? 10 * ((d - unrelated) % group_size) : 0);
+    for (uint64_t item = 1000 * base; item < 1000 * base + 100; ++item) {
+      const bool is_moved = member && item >= moved && item < moved + 10;
+      s.update(is_moved ? 1000000000 + item : item);
+    }
+    sketches.push_back(s);
+  }
+
+  for (const uint16_t b : {16, 32}) {
+    index lsh(b, 0.5);
+    for (uint64_t d = 0; d < documents; ++d) {
+      lsh.add(d, sketches[d]);
+    }
+    uint64_t pairs = 0;  // candidates other than the document itself
+    for (uint64_t d = 0; d < documents; ++d) {
+      const auto keys_d = index::band_keys(sketches[d], b);
+      std::vector<uint64_t> expected;
+      for (uint64_t e = 0; e < documents; ++e) {
+        if (characterise::lsh_candidate(keys_d, index::band_keys(sketches[e], b))) {
+          expected.push_back(e);
+        }
+      }
+      REQUIRE(lsh.query_candidates(sketches[d]) == expected);
+      pairs += expected.size() - 1;
+    }
+    REQUIRE(pairs > 0);  // the groups give candidates, so the check is not trivial
+  }
 }
