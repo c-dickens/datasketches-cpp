@@ -63,8 +63,9 @@ std::vector<uint64_t> pwr_2_law_points(uint64_t start, uint64_t end, unsigned pp
   }
   std::vector<uint64_t> points{start};
   for (uint64_t cur = start;;) {
-    // pwr_2_law_next: the next point of the grid round(2^(i / ppo)) that is above cur.
-    auto i = static_cast<int64_t>(std::round(std::log2(static_cast<double>(cur)) * ppo));
+    // pwr_2_law_next: the next point of the grid round(2^(i / ppo)) that is above cur. Start at
+    // floor, not round: every i <= floor(ppo log2(cur)) gives a point <= cur, so no point is skipped.
+    auto i = static_cast<int64_t>(std::floor(std::log2(static_cast<double>(cur)) * ppo));
     uint64_t next = 0;
     do {
       next = static_cast<uint64_t>(std::round(std::pow(2.0, static_cast<double>(++i) / ppo)));

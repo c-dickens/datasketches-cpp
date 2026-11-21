@@ -151,6 +151,8 @@ TEST_CASE("a copy saved from the stream after i items is the sketch of [0, i)", 
 
 TEST_CASE("pwr_2_law_points gives the power-law grid from start to end", "[characterise]") {
   REQUIRE(characterise::pwr_2_law_points(2, 64, 1) == std::vector<uint64_t>{2, 4, 8, 16, 32, 64});
+  // A start that is not on the grid must not skip the next grid point (4).
+  REQUIRE(characterise::pwr_2_law_points(3, 64, 1) == std::vector<uint64_t>{3, 4, 8, 16, 32, 64});
   const auto points = characterise::pwr_2_law_points(2, 65536, 16);
   REQUIRE(points.front() == 2);
   REQUIRE(points.back() == 65536);

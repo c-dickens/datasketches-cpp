@@ -23,15 +23,15 @@ Written by `plots/accuracy_n.py` from `accuracy_n.tsv` (profile `minhash-accurac
 
 ## End of the small-set region
 
-The largest n at which the theta ±2σ spread (error Q0.97725 − Q0.02275) is smaller than the MinHash spread.
+The region starts at the smallest n. It ends at the last n before the theta ±2σ spread (error Q0.97725 − Q0.02275) first becomes larger than the MinHash spread. Equal spreads stay in the region, because at small k the quantiles take few values and often tie. "> n" means that the region does not end inside the n range.
 
 | k | J = 0.1 | J = 0.5 | J = 0.9 |
 |---|---|---|---|
-| 16 | 38968 | 65536 | 62757 |
-| 64 | 65536 | 65536 | 65536 |
-| 256 | 65536 | 65536 | 65536 |
-| 1024 | 65536 | 65536 | 65536 |
-| 4096 | 65536 | 65536 | 65536 |
+| 16 | > 65536 | > 65536 | > 65536 |
+| 64 | > 65536 | > 65536 | > 65536 |
+| 256 | > 65536 | > 65536 | > 65536 |
+| 1024 | > 65536 | > 65536 | > 65536 |
+| 4096 | > 65536 | > 65536 | > 65536 |
 
 ## Memory of theta A against MinHash
 

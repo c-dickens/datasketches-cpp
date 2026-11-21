@@ -178,8 +178,10 @@ def _(LICENCE, df, k_values, mo, results_dir, stem, target_js, theta_lg_k):
             "",
             "## End of the small-set region",
             "",
-            "The largest n at which the theta ±2σ spread (error Q0.97725 − Q0.02275) is smaller than the"
-            " MinHash spread.",
+            "The region starts at the smallest n. It ends at the last n before the theta ±2σ spread"
+            " (error Q0.97725 − Q0.02275) first becomes larger than the MinHash spread. Equal spreads"
+            " stay in the region, because at small k the quantiles take few values and often tie."
+            " \"> n\" means that the region does not end inside the n range.",
             "",
             "| k | " + " | ".join(f"J = {j:g}" for j in target_js) + " |",
             "|---|" + "---|" * len(target_js),
@@ -187,9 +189,13 @@ def _(LICENCE, df, k_values, mo, results_dir, stem, target_js, theta_lg_k):
         for k in k_values:
             cells = []
             for j in target_js:
-                d = df[(df["K"] == k) & (df["TargetJ"] == j)]
-                smaller = d[_spread(d, "TH") < _spread(d, "MH")]
-                cells.append(str(smaller["N"].max()) if len(smaller) else "none")
+                d = df[(df["K"] == k) & (df["TargetJ"] == j)].sort_values("N")
+                larger = (_spread(d, "TH") > _spread(d, "MH")).to_numpy()
+                if not larger.any():
+                    cells.append(f"> {d['N'].iloc[-1]}")
+                else:
+                    first = larger.argmax()
+                    cells.append(str(d["N"].iloc[first - 1]) if first > 0 else "none")
             lines.append(f"| {k} | " + " | ".join(cells) + " |")
         lines += [
             "",
