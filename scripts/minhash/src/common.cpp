@@ -104,7 +104,8 @@ bool lsh_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64
 }
 
 double lsh_theory_rate(double j, unsigned r, unsigned b) {
-  return 1.0 - std::pow(1.0 - std::pow(j, r), b);
+  // -expm1(b log1p(-j^r)) is 1 - (1 - j^r)^b without the cancellation when j^r is small.
+  return -std::expm1(static_cast<double>(b) * std::log1p(-std::pow(j, r)));
 }
 
 }  // namespace characterise

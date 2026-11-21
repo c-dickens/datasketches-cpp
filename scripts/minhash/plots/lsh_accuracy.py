@@ -181,7 +181,8 @@ def _(LICENCE, THRESHOLDS, df, k_values, mo, np, results_dir):
         for k in k_values:
             d = df[df["K"] == k]
             n = d["Trials"]
-            p = 1 - (1 - np.power(d["TrueJ"], d["R"])) ** d["B"]  # as lsh_theory_rate(), not the printed value
+            # As lsh_theory_rate(), not the printed value: 1 - (1 - J^R)^B in the stable form.
+            p = -np.expm1(d["B"] * np.log1p(-np.power(d["TrueJ"], d["R"])))
             inner = (p > 0) & (p < 1)
             normal = inner & (n * p >= 20) & (n * (1 - p) >= 20)
             small = d[inner & ~normal]

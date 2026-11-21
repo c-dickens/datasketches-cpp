@@ -242,6 +242,9 @@ TEST_CASE("lsh_theory_rate is 1 - (1 - j^r)^b", "[characterise]") {
   REQUIRE(characterise::lsh_theory_rate(0.5, 4, 32) == Approx(0.873211).margin(1e-6));
   REQUIRE(characterise::lsh_theory_rate(0.0, 4, 32) == 0.0);
   REQUIRE(characterise::lsh_theory_rate(1.0, 4, 32) == 1.0);
+  // Small j^r: 1 - (1 - 0.75^64)^4 = 4.03627587217052671e-8 (60-digit decimal). The direct form
+  // 1 - (1 - x)^b cancels and is wrong in the 9th digit here.
+  REQUIRE(characterise::lsh_theory_rate(0.75, 64, 4) == Approx(4.03627587217052671e-8).epsilon(1e-12));
 }
 
 TEST_CASE("the lsh_accuracy smoke profile writes a complete, deterministic TSV", "[characterise]") {
