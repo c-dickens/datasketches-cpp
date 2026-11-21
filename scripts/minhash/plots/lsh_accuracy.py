@@ -76,7 +76,7 @@ def _(LICENCE, mo, results_dir):
 
 
 @app.cell
-def _(colours, df, k_values, plt, save_svg):
+def _(colours, df, k_values, mo, plt, save_svg):
     def _scurve_figure(k):
         d = df[df["K"] == k]
         bands = sorted(d["B"].unique())
@@ -93,8 +93,7 @@ def _(colours, df, k_values, plt, save_svg):
         fig.tight_layout()
         return save_svg(fig, f"lsh_scurve_k{k}.svg")
 
-    for _k in k_values:
-        _scurve_figure(_k)
+    mo.vstack([_scurve_figure(_k) for _k in k_values])  # the last expression is the cell output
     return
 
 
