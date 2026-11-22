@@ -20,8 +20,12 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iterator>
+#include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -418,4 +422,87 @@ TEST_CASE("lsh accuracy: the index finds the band-key candidates", "[characteris
     }
     REQUIRE(pairs > 0);  // the groups give candidates, so the check is not trivial
   }
+}
+
+TEST_CASE("counting_allocator counts the bytes that it holds", "[characterise]") {
+  const int64_t start = characterise::counted_bytes();
+  {
+    std::vector<uint64_t, characterise::counting_allocator<uint64_t>> v(1000);
+    REQUIRE(characterise::counted_bytes() - start >= 8000);
+  }
+  REQUIRE(characterise::counted_bytes() == start);
+}
+
+TEST_CASE("lsh_documents plants groups of 2 to 5 in the first tenth of the ids", "[characterise]") {
+  const auto docs = characterise::lsh_documents(1000);
+  REQUIRE(docs.size() == 1000);
+  std::map<int64_t, uint64_t> sizes;
+  for (uint64_t d = 0; d < docs.size(); ++d) {
+    REQUIRE(docs[d].id == d);
+    if (docs[d].group < 0) {
+      REQUIRE(docs[d].true_j == 0.0);
+      continue;
+    }
+    REQUIRE(d < 100);
+    REQUIRE(docs[d].true_j >= 0.6);
+    REQUIRE(docs[d].true_j <= 0.95);
+    ++sizes[docs[d].group];
+  }
+  REQUIRE(!sizes.empty());
+  for (const auto& g : sizes) {
+    REQUIRE(g.second >= 2);
+    REQUIRE(g.second <= 5);
+  }
+}
+
+TEST_CASE("lsh_document_items gives 1000 distinct items with the exact J of the layout", "[characterise]") {
+  const auto docs = characterise::lsh_documents(1000);
+  std::vector<std::set<uint64_t>> items(docs.size());
+  for (uint64_t d = 0; d < docs.size(); ++d) {
+    uint64_t calls = 0;
+    characterise::lsh_document_items(docs, d, [&](uint64_t item) {
+      items[d].insert(item);
+      ++calls;
+    });
+    REQUIRE(calls == 1000);
+    REQUIRE(items[d].size() == 1000);
+  }
+  const auto jaccard = [&](uint64_t a, uint64_t b) {
+    std::vector<uint64_t> both;
+    std::set_intersection(items[a].begin(), items[a].end(), items[b].begin(), items[b].end(), std::back_inserter(both));
+    return static_cast<double>(both.size()) / static_cast<double>(items[a].size() + items[b].size() - both.size());
+  };
+  uint64_t group_pairs = 0;
+  for (uint64_t a = 0; a < 100; ++a) {
+    for (uint64_t b = a + 1; b < 100; ++b) {
+      if (docs[a].group >= 0 && docs[a].group == docs[b].group) {
+        REQUIRE(jaccard(a, b) == Approx(docs[a].true_j).margin(1e-12));
+        ++group_pairs;
+      } else {
+        REQUIRE(jaccard(a, b) == 0.0);
+      }
+    }
+  }
+  REQUIRE(group_pairs > 0);
+  REQUIRE(docs[500].group < 0);
+  REQUIRE(docs[501].group < 0);
+  REQUIRE(jaccard(500, 501) == 0.0);
+}
+
+TEST_CASE("smallest_hash_ids is deterministic, sorted, and gives all ids when count >= size", "[characterise]") {
+  std::vector<uint64_t> ids;
+  for (uint64_t i = 0; i < 1000; ++i) {
+    ids.push_back(999 - i);
+  }
+  const auto a = characterise::smallest_hash_ids(ids, 100, 1);
+  REQUIRE(a == characterise::smallest_hash_ids(ids, 100, 1));
+  REQUIRE(a.size() == 100);
+  REQUIRE(std::is_sorted(a.begin(), a.end()));
+  REQUIRE(std::adjacent_find(a.begin(), a.end()) == a.end());
+  auto all = characterise::smallest_hash_ids(ids, 1000, 1);
+  REQUIRE(all.size() == 1000);
+  REQUIRE(std::is_sorted(all.begin(), all.end()));
+  REQUIRE(all.front() == 0);
+  REQUIRE(all.back() == 999);
+  REQUIRE(characterise::smallest_hash_ids(ids, 5000, 1) == all);
 }

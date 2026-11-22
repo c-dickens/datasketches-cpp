@@ -177,6 +177,8 @@ are committed.
 | `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | about 1 s |
 | `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 30 s (estimate) |
 | `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | less than 1 s |
+| `minhash-lsh-performance` | The time, memory, recall and precision of finding all pairs with J ≥ 0.5 among N documents: MinHash with the LSH index ((b, r) = (32, 4) and (16, 8), N = 2^8 to 2^18), MinHash `jaccard()` on all pairs (N ≤ 2^14) and theta `jaccard()` on all pairs (N ≤ 2^12), k = 128 | about 14 min (estimate, Intel Xeon 2.3 GHz) |
+| `minhash-lsh-performance-smoke` | The same, with N ≤ 2^12 for LSH, 2^11 and 2^10 for brute force, 100 queries for each class and 1 repeat | 10 s (Intel Xeon 2.3 GHz) |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -228,8 +230,29 @@ are named with a tag `<compiler>_<cpu>`, for example
 - `speed_<tag>.md`: the tables of ns per item at the largest n and of ns per
   call.
 
-The full speed results are not committed yet. MH-21 runs them on a quiet
-machine.
+The LSH performance profile (MH-20) finds all pairs with J ≥ 0.5 among N
+documents of 1000 items. The first tenth of the documents are in planted groups
+of 2 to 5 near-duplicates with an exact J of 0.6 to 0.95. The others share no
+items. So every true pair is known. It times the phases `sketch`, `add`,
+`cluster`, `query_planted`, `query_unrelated` and `brute`. A counting allocator
+measures the bytes of the index. It writes its time TSV to stdout and its
+quality TSV to the file that `CHARACTERISE_QUALITY_OUT` names. Its files use the
+same tag as the speed profiles:
+
+- `lsh_performance_time_<tag>.tsv`: the median and minimum time of each
+  (method, b, r, N, phase).
+- `lsh_performance_quality_<tag>.tsv`: the true, reported and true-positive
+  pairs, the recall and precision, the LSH candidate pairs and largest bucket,
+  and the bytes per document, for each (method, b, r, N).
+- `lsh_performance_time_<tag>.svg`, `lsh_performance_memory_<tag>.svg` and
+  `lsh_performance_quality_<tag>.svg`: the plots. The time plot draws the fitted
+  c N² of each brute-force method, dashed, up to N = 2^18.
+- `lsh_performance_<tag>.md`: the crossover N and the speed-up of LSH over each
+  brute-force method, the time of each phase, the ns per query, and the recall
+  and precision.
+
+The full speed and LSH performance results are not committed yet. MH-21 runs
+them on a quiet machine.
 
 Read the results with these limits:
 

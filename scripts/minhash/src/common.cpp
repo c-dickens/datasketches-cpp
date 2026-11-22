@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "xxhash64.h"
+
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
@@ -160,6 +162,64 @@ std::vector<std::string> string_items(std::size_t n, std::size_t length) {
     items[i] = std::move(s);
   }
   return items;
+}
+
+int64_t counted_bytes() { return detail::counted_bytes_total; }
+
+namespace {
+
+constexpr uint64_t GROUP_SEED = 2;
+
+uint64_t group_hash(int64_t group) {
+  const auto g = static_cast<uint64_t>(group);
+  return XXHash64::hash(&g, sizeof(g), GROUP_SEED);
+}
+
+}  // namespace
+
+uint64_t lsh_group_delta(int64_t group) {
+  const double target_j = 0.6 + 0.35 * static_cast<double>(group_hash(group) % 1000) / 999.0;
+  return static_cast<uint64_t>(
+      std::llround(static_cast<double>(LSH_DOCUMENT_ITEMS) * (1.0 - target_j) / (2.0 * (1.0 + target_j))));
+}
+
+std::vector<lsh_document> lsh_documents(uint64_t n) {
+  std::vector<lsh_document> docs;
+  docs.reserve(n);
+  const uint64_t planted = n / 10;
+  int64_t group = 0;
+  while (planted - docs.size() >= 2) {
+    const uint64_t left = planted - docs.size();
+    const uint64_t size = std::min<uint64_t>(2 + (group_hash(group) >> 32) % 4, left);
+    const auto items = static_cast<double>(LSH_DOCUMENT_ITEMS);
+    const auto delta = static_cast<double>(lsh_group_delta(group));
+    const double true_j = (items - 2.0 * delta) / (items + 2.0 * delta);
+    for (uint64_t m = 0; m < size; ++m) {
+      docs.push_back({docs.size(), group, true_j});
+    }
+    ++group;
+  }
+  while (docs.size() < n) {
+    docs.push_back({docs.size(), -1, 0.0});
+  }
+  return docs;
+}
+
+std::vector<uint64_t> smallest_hash_ids(std::vector<uint64_t> ids, std::size_t count, uint64_t seed) {
+  if (count < ids.size()) {
+    std::vector<std::pair<uint64_t, uint64_t>> keyed;
+    keyed.reserve(ids.size());
+    for (const uint64_t id : ids) {
+      keyed.emplace_back(XXHash64::hash(&id, sizeof(id), seed), id);
+    }
+    std::sort(keyed.begin(), keyed.end());
+    ids.clear();
+    for (std::size_t i = 0; i < count; ++i) {
+      ids.push_back(keyed[i].second);
+    }
+  }
+  std::sort(ids.begin(), ids.end());
+  return ids;
 }
 
 }  // namespace characterise
