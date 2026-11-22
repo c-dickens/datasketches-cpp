@@ -1,0 +1,275 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+// Profile lsh_performance (MH-20): find all pairs with J >= t among N documents, with three
+// methods. minhash_lsh adds the MinHash sketches to the LSH index and clusters them.
+// minhash_brute and theta_brute estimate J on all N (N - 1) / 2 pairs. The data has planted
+// groups of near-duplicates (lsh_documents), so every true pair is known. Every result goes into
+// a sink, which is printed to stderr at the end, so that the compiler cannot remove the timed work.
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "characterise/common.hpp"
+#include "characterise/profiles.hpp"
+#include "minhash_lsh.hpp"
+#include "minhash_sketch.hpp"
+#include "theta_jaccard_similarity.hpp"
+#include "theta_sketch.hpp"
+
+namespace characterise {
+
+namespace {
+
+using steady = std::chrono::steady_clock;
+using alloc = counting_allocator<uint64_t>;
+using sketch_type = datasketches::minhash_sketch_alloc<alloc>;
+using index_type = datasketches::minhash_lsh_index_alloc<alloc>;
+
+constexpr uint16_t K = 128;
+constexpr uint8_t THETA_LG_K = 7;
+constexpr double THRESHOLD = 0.5;
+constexpr double PLANTED_FRACTION = 0.1;  // lsh_documents puts n / 10 ids in planted groups
+constexpr uint64_t QUERY_SEED = 1;
+constexpr std::pair<uint16_t, uint16_t> BANDS[] = {{32, 4}, {16, 8}};
+constexpr unsigned PPO = 2;
+constexpr uint64_t MIN_N = 1ULL << 8;
+constexpr uint64_t FULL_LSH_MAX_N = 1ULL << 18;
+constexpr uint64_t FULL_MINHASH_BRUTE_MAX_N = 1ULL << 14;
+constexpr uint64_t FULL_THETA_BRUTE_MAX_N = 1ULL << 12;
+constexpr uint64_t SMOKE_LSH_MAX_N = 1ULL << 12;
+constexpr uint64_t SMOKE_MINHASH_BRUTE_MAX_N = 1ULL << 11;
+constexpr uint64_t SMOKE_THETA_BRUTE_MAX_N = 1ULL << 10;
+constexpr std::size_t FULL_QUERIES = 500;
+constexpr std::size_t SMOKE_QUERIES = 100;
+constexpr unsigned FULL_REPEATS = 3;
+constexpr unsigned SMOKE_REPEATS = 1;
+
+double seconds_since(steady::time_point start) {
+  return std::chrono::duration<double>(steady::now() - start).count();
+}
+
+// The times of one (method, b, r, phase), one for each repeat, in the order of the first repeat.
+struct timings {
+  std::vector<std::string> keys;
+  std::map<std::string, std::vector<double>> seconds;
+
+  void add(const std::string& key, double s) {
+    auto& v = seconds[key];
+    if (v.empty()) {
+      keys.push_back(key);
+    }
+    v.push_back(s);
+  }
+};
+
+std::string time_key(const std::string& method, unsigned b, unsigned r, uint64_t n, const std::string& phase) {
+  return method + "\t" + std::to_string(b) + "\t" + std::to_string(r) + "\t" + std::to_string(n) + "\t" + phase;
+}
+
+// CandidatePairs, BandCollisions and LargestBucket of the bands of all sketches.
+lsh_bucket_counts bucket_stats(const std::vector<sketch_type>& sketches, uint16_t b) {
+  std::vector<uint64_t> keys;
+  keys.reserve(sketches.size() * b);
+  for (const auto& s : sketches) {
+    const auto k = index_type::band_keys(s, b);
+    keys.insert(keys.end(), k.begin(), k.end());
+  }
+  return count_lsh_buckets(keys, b);
+}
+
+// The matches of the queries: the candidates e != q with jaccard(q, e) >= t.
+uint64_t run_queries(const index_type& index, const std::vector<sketch_type>& sketches,
+                     const std::vector<uint64_t>& queries) {
+  uint64_t matches = 0;
+  for (const uint64_t q : queries) {
+    for (const uint64_t e : index.query_candidates(sketches[q])) {
+      if (e != q && sketches[q].jaccard(sketches[e]) >= THRESHOLD) {
+        ++matches;
+      }
+    }
+  }
+  return matches;
+}
+
+struct grid {
+  std::vector<uint64_t> ns;
+  uint64_t minhash_brute_max_n;
+  uint64_t theta_brute_max_n;
+  std::size_t queries;
+  unsigned repeats;
+};
+
+void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out, double& sink) {
+  const auto docs = lsh_documents(n);
+  const uint64_t true_pairs = lsh_true_pairs(docs);
+  std::vector<uint64_t> planted_ids;
+  std::vector<uint64_t> unrelated_ids;
+  for (const auto& d : docs) {
+    (d.group < 0 ? unrelated_ids : planted_ids).push_back(d.id);
+  }
+  const auto planted_queries = smallest_hash_ids(planted_ids, g.queries, QUERY_SEED);
+  const auto unrelated_queries = smallest_hash_ids(unrelated_ids, g.queries, QUERY_SEED);
+
+  for (unsigned repeat = 0; repeat < g.repeats; ++repeat) {
+    const bool first = repeat == 0;
+    auto start = steady::now();
+    std::vector<sketch_type> sketches;
+    sketches.reserve(n);
+    for (uint64_t d = 0; d < n; ++d) {
+      auto s = sketch_type::builder().set_k(K).build();
+      lsh_document_items(docs, d, [&s](uint64_t item) { s.update(item); });
+      sketches.push_back(std::move(s));
+    }
+    times.add(time_key("minhash", 0, 0, n, "sketch"), seconds_since(start));
+    sink += static_cast<double>(sketches.back().get_signature()[0]);
+
+    for (const auto& br : BANDS) {
+      const int64_t bytes_before = counted_bytes();
+      index_type index(br.first, THRESHOLD);
+      start = steady::now();
+      for (uint64_t d = 0; d < n; ++d) {
+        index.add(d, sketches[d]);
+      }
+      times.add(time_key("minhash_lsh", br.first, br.second, n, "add"), seconds_since(start));
+      const int64_t index_bytes = counted_bytes() - bytes_before;
+      sink += static_cast<double>(index.get_num_documents());
+
+      start = steady::now();
+      const auto clusters = index.get_duplicate_clusters();
+      times.add(time_key("minhash_lsh", br.first, br.second, n, "cluster"), seconds_since(start));
+      sink += static_cast<double>(clusters.size());
+
+      start = steady::now();
+      sink += static_cast<double>(run_queries(index, sketches, planted_queries));
+      times.add(time_key("minhash_lsh", br.first, br.second, n, "query_planted"), seconds_since(start));
+      start = steady::now();
+      sink += static_cast<double>(run_queries(index, sketches, unrelated_queries));
+      times.add(time_key("minhash_lsh", br.first, br.second, n, "query_unrelated"), seconds_since(start));
+
+      if (first) {
+        const auto stats = bucket_stats(sketches, br.first);
+        write_quality(quality_out, "minhash_lsh", br.first, br.second, n, true_pairs, cluster_pairs(clusters, docs),
+                      stats.candidate_pairs, std::to_string(stats.band_collisions),
+                      std::to_string(stats.largest_bucket),
+                      static_cast<double>(index_bytes) / static_cast<double>(n));
+      }
+    }
+
+    const auto minhash_jaccard = [](const sketch_type& a, const sketch_type& b) { return a.jaccard(b); };
+    if (n <= g.minhash_brute_max_n) {
+      start = steady::now();
+      const auto pairs = brute_pairs(sketches, minhash_jaccard, docs, THRESHOLD);
+      times.add(time_key("minhash_brute", 0, 0, n, "brute"), seconds_since(start));
+      sink += static_cast<double>(pairs.reported);
+      if (first) {
+        write_quality(quality_out, "minhash_brute", 0, 0, n, true_pairs, pairs,
+                      n * (n - 1) / 2, "NA", "NA", 8.0 * K);
+      }
+    }
+    sketches.clear();
+    sketches.shrink_to_fit();
+
+    if (n <= g.theta_brute_max_n) {
+      start = steady::now();
+      std::vector<datasketches::compact_theta_sketch> thetas;
+      thetas.reserve(n);
+      for (uint64_t d = 0; d < n; ++d) {
+        auto s = datasketches::update_theta_sketch::builder().set_lg_k(THETA_LG_K).build();
+        lsh_document_items(docs, d, [&s](uint64_t item) { s.update(item); });
+        thetas.push_back(s.compact());
+      }
+      times.add(time_key("theta", 0, 0, n, "sketch"), seconds_since(start));
+      sink += static_cast<double>(thetas.back().get_num_retained());
+
+      const auto theta_jaccard = [](const datasketches::compact_theta_sketch& a,
+                                    const datasketches::compact_theta_sketch& b) {
+        return datasketches::theta_jaccard_similarity::jaccard(a, b)[1];
+      };
+      start = steady::now();
+      const auto pairs = brute_pairs(thetas, theta_jaccard, docs, THRESHOLD);
+      times.add(time_key("theta_brute", 0, 0, n, "brute"), seconds_since(start));
+      sink += static_cast<double>(pairs.reported);
+      if (first) {
+        double bytes = 0.0;
+        for (const auto& s : thetas) {
+          bytes += static_cast<double>(s.get_serialized_size_bytes());
+        }
+        write_quality(quality_out, "theta_brute", 0, 0, n, true_pairs, pairs,
+                      n * (n - 1) / 2, "NA", "NA", bytes / static_cast<double>(n));
+      }
+    }
+  }
+}
+
+void write_header(std::ostream& out, const char* profile, const grid& g) {
+  write_metadata(out, profile);
+  out << "# cpu=" << cpu_model() << "\n";
+  out << "# k=" << K << "\n";
+  out << "# threshold=" << THRESHOLD << "\n";
+  out << "# repeats=" << g.repeats << "\n";
+  out << "# planted_fraction=" << PLANTED_FRACTION << "\n";
+  // A class with fewer ids than this has one query for each id.
+  out << "# queries_per_class=" << g.queries << "\n";
+}
+
+}  // namespace
+
+void lsh_performance(std::ostream& time_out, std::ostream& quality_out, bool smoke) {
+  const uint64_t lsh_max_n = smoke ? SMOKE_LSH_MAX_N : FULL_LSH_MAX_N;
+  const grid g{pwr_2_law_points(MIN_N, lsh_max_n, PPO), smoke ? SMOKE_MINHASH_BRUTE_MAX_N : FULL_MINHASH_BRUTE_MAX_N,
+               smoke ? SMOKE_THETA_BRUTE_MAX_N : FULL_THETA_BRUTE_MAX_N, smoke ? SMOKE_QUERIES : FULL_QUERIES,
+               smoke ? SMOKE_REPEATS : FULL_REPEATS};
+  const char* profile = smoke ? "minhash-lsh-performance-smoke" : "minhash-lsh-performance";
+
+  time_out << std::setprecision(10);
+  quality_out << std::setprecision(10);
+  write_header(time_out, profile, g);
+  write_header(quality_out, profile, g);
+  time_out << "Method\tB\tR\tN\tPhase\tRepeats\tMedianSec\tMinSec\n";
+  quality_out << "Method\tB\tR\tN\tTruePairs\tReportedPairs\tTruePositives\tRecall\tPrecision\tCandidatePairs"
+                 "\tBandCollisions\tLargestBucket\tBytesPerDoc\n";
+
+  double sink = 0.0;
+  const auto start = steady::now();
+  for (const uint64_t n : g.ns) {
+    timings times;
+    run_n(n, g, times, quality_out, sink);
+    for (const auto& key : times.keys) {
+      auto v = times.seconds[key];
+      std::sort(v.begin(), v.end());
+      // The median of an even count is the mean of the two middle values.
+      const double median = v.size() % 2 == 1 ? v[v.size() / 2] : (v[v.size() / 2 - 1] + v[v.size() / 2]) / 2.0;
+      time_out << key << "\t" << v.size() << "\t" << median << "\t" << v.front() << "\n";
+    }
+    std::cerr << "lsh_performance: N = " << n << " done, " << std::fixed << std::setprecision(1)
+              << seconds_since(start) << " s elapsed\n"
+              << std::defaultfloat;
+  }
+  std::cerr << "lsh_performance: sink = " << sink << "\n";
+}
+
+}  // namespace characterise

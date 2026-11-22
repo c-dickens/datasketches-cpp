@@ -20,8 +20,12 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iterator>
+#include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -418,4 +422,159 @@ TEST_CASE("lsh accuracy: the index finds the band-key candidates", "[characteris
     }
     REQUIRE(pairs > 0);  // the groups give candidates, so the check is not trivial
   }
+}
+
+TEST_CASE("counting_allocator counts the bytes that it holds", "[characterise]") {
+  const int64_t start = characterise::counted_bytes();
+  {
+    std::vector<uint64_t, characterise::counting_allocator<uint64_t>> v(1000);
+    REQUIRE(characterise::counted_bytes() - start >= 8000);
+  }
+  REQUIRE(characterise::counted_bytes() == start);
+}
+
+TEST_CASE("lsh_documents plants groups of 2 to 5 in the first tenth of the ids", "[characterise]") {
+  const auto docs = characterise::lsh_documents(1000);
+  REQUIRE(docs.size() == 1000);
+  std::map<int64_t, uint64_t> sizes;
+  for (uint64_t d = 0; d < docs.size(); ++d) {
+    REQUIRE(docs[d].id == d);
+    if (docs[d].group < 0) {
+      REQUIRE(docs[d].true_j == 0.0);
+      continue;
+    }
+    REQUIRE(d < 100);
+    REQUIRE(docs[d].true_j >= 0.6);
+    REQUIRE(docs[d].true_j <= 0.95);
+    ++sizes[docs[d].group];
+  }
+  REQUIRE(!sizes.empty());
+  for (const auto& g : sizes) {
+    REQUIRE(g.second >= 2);
+    REQUIRE(g.second <= 5);
+  }
+}
+
+TEST_CASE("lsh_document_items gives 1000 distinct items with the exact J of the layout", "[characterise]") {
+  const auto docs = characterise::lsh_documents(1000);
+  std::vector<std::set<uint64_t>> items(docs.size());
+  for (uint64_t d = 0; d < docs.size(); ++d) {
+    uint64_t calls = 0;
+    characterise::lsh_document_items(docs, d, [&](uint64_t item) {
+      items[d].insert(item);
+      ++calls;
+    });
+    REQUIRE(calls == 1000);
+    REQUIRE(items[d].size() == 1000);
+  }
+  const auto jaccard = [&](uint64_t a, uint64_t b) {
+    std::vector<uint64_t> both;
+    std::set_intersection(items[a].begin(), items[a].end(), items[b].begin(), items[b].end(), std::back_inserter(both));
+    return static_cast<double>(both.size()) / static_cast<double>(items[a].size() + items[b].size() - both.size());
+  };
+  uint64_t group_pairs = 0;
+  for (uint64_t a = 0; a < 100; ++a) {
+    for (uint64_t b = a + 1; b < 100; ++b) {
+      if (docs[a].group >= 0 && docs[a].group == docs[b].group) {
+        REQUIRE(jaccard(a, b) == Approx(docs[a].true_j).margin(1e-12));
+        ++group_pairs;
+      } else {
+        REQUIRE(jaccard(a, b) == 0.0);
+      }
+    }
+  }
+  REQUIRE(group_pairs > 0);
+  REQUIRE(docs[500].group < 0);
+  REQUIRE(docs[501].group < 0);
+  REQUIRE(jaccard(500, 501) == 0.0);
+}
+
+TEST_CASE("smallest_hash_ids is deterministic, sorted, and gives all ids when count >= size", "[characterise]") {
+  std::vector<uint64_t> ids;
+  for (uint64_t i = 0; i < 1000; ++i) {
+    ids.push_back(999 - i);
+  }
+  const auto a = characterise::smallest_hash_ids(ids, 100, 1);
+  REQUIRE(a == characterise::smallest_hash_ids(ids, 100, 1));
+  REQUIRE(a.size() == 100);
+  REQUIRE(std::is_sorted(a.begin(), a.end()));
+  REQUIRE(std::adjacent_find(a.begin(), a.end()) == a.end());
+  auto all = characterise::smallest_hash_ids(ids, 1000, 1);
+  REQUIRE(all.size() == 1000);
+  REQUIRE(std::is_sorted(all.begin(), all.end()));
+  REQUIRE(all.front() == 0);
+  REQUIRE(all.back() == 999);
+  REQUIRE(characterise::smallest_hash_ids(ids, 5000, 1) == all);
+}
+
+TEST_CASE("count_lsh_buckets counts a pair once, however many bands it shares", "[characterise]") {
+  // b = 2. Documents 0 and 1 share both bands, and document 2 shares band 0 with both.
+  const std::vector<uint64_t> keys{1, 10, 1, 10, 1, 20};
+  const auto counts = characterise::count_lsh_buckets(keys, 2);
+  REQUIRE(counts.candidate_pairs == 3);  // (0, 1), (0, 2), (1, 2)
+  REQUIRE(counts.band_collisions == 4);  // 3 in band 0, 1 in band 1
+  REQUIRE(counts.largest_bucket == 3);
+
+  // Two identical documents give 1 candidate pair and b band collisions.
+  const auto same = characterise::count_lsh_buckets({5, 6, 7, 8, 5, 6, 7, 8}, 4);
+  REQUIRE(same.candidate_pairs == 1);
+  REQUIRE(same.band_collisions == 4);
+  REQUIRE(same.largest_bucket == 2);
+}
+
+namespace {
+// Groups 0 = {0, 1, 2} and 1 = {3, 4}, and one unrelated document 5. True pairs: 3 + 1 = 4.
+std::vector<characterise::lsh_document> small_layout() {
+  return {{0, 0, 0.8}, {1, 0, 0.8}, {2, 0, 0.8}, {3, 1, 0.7}, {4, 1, 0.7}, {5, -1, 0.0}};
+}
+}  // namespace
+
+TEST_CASE("lsh_true_pairs counts the pairs inside each planted group", "[characterise]") {
+  REQUIRE(characterise::lsh_true_pairs(small_layout()) == 4);
+  // In lsh_documents(1000), the groups are the runs of one group id.
+  const auto docs = characterise::lsh_documents(1000);
+  std::map<int64_t, uint64_t> sizes;
+  for (const auto& d : docs) {
+    if (d.group >= 0) {
+      ++sizes[d.group];
+    }
+  }
+  uint64_t expected = 0;
+  for (const auto& g : sizes) {
+    expected += g.second * (g.second - 1) / 2;
+  }
+  REQUIRE(characterise::lsh_true_pairs(docs) == expected);
+}
+
+TEST_CASE("cluster_pairs reports every pair in a cluster, and the true ones", "[characterise]") {
+  const auto docs = small_layout();
+  // One cluster joins group 0 with the unrelated document, and one holds group 1.
+  const std::vector<std::vector<uint64_t>> clusters{{0, 1, 2, 5}, {3, 4}};
+  const auto counts = characterise::cluster_pairs(clusters, docs);
+  REQUIRE(counts.reported == 6 + 1);
+  REQUIRE(counts.true_positives == 3 + 1);
+  // A cluster across two groups has no true pair between the groups.
+  const auto mixed = characterise::cluster_pairs(std::vector<std::vector<uint64_t>>{{2, 3}}, docs);
+  REQUIRE(mixed.reported == 1);
+  REQUIRE(mixed.true_positives == 0);
+}
+
+TEST_CASE("brute_pairs reports the pairs at or above the threshold, and the true ones", "[characterise]") {
+  const auto docs = small_layout();
+  // "Sketches" are numbers, and the similarity is 1 - |a - b|.
+  const std::vector<double> values{0.0, 0.0, 0.0, 10.0, 10.0, 0.5};
+  const auto similarity = [](double a, double b) { return 1.0 - (a > b ? a - b : b - a); };
+  const auto counts = characterise::brute_pairs(values, similarity, docs, 0.5);
+  // Passing: the 3 pairs of group 0, (3, 4), and document 5 with each of 0, 1, 2 (exactly 0.5).
+  REQUIRE(counts.reported == 3 + 1 + 3);
+  REQUIRE(counts.true_positives == 3 + 1);
+}
+
+TEST_CASE("write_quality gives recall, precision, and NA when nothing is reported", "[characterise]") {
+  std::ostringstream out;
+  characterise::write_quality(out, "m", 32, 4, 100, 4, {5, 3}, 7, "9", "2", 1024.0);
+  REQUIRE(out.str() == "m\t32\t4\t100\t4\t5\t3\t0.75\t0.6\t7\t9\t2\t1024\n");
+  std::ostringstream none;
+  characterise::write_quality(none, "m", 0, 0, 100, 4, {0, 0}, 4950, "NA", "NA", 8.0);
+  REQUIRE(none.str() == "m\t0\t0\t100\t4\t0\t0\t0\tNA\t4950\tNA\tNA\t8\n");
 }
