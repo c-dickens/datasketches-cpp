@@ -31,6 +31,8 @@
 #include <vector>
 
 #include "demo/demo.hpp"
+#include "minhash_lsh.hpp"
+#include "xxhash64.h"
 
 // REQUIRE(!x) instead of REQUIRE_FALSE(x): the Catch2 v2 flags of REQUIRE_FALSE make
 // clang-analyzer-optin.core.EnumCastOutOfRange report a finding inside catch.hpp.
@@ -203,11 +205,22 @@ TEST_CASE("is_candidate is true when the key lists are equal in one band", "[dem
   REQUIRE_THROWS_AS(demo::is_candidate({1, 2}, {1, 2, 3}), std::invalid_argument);
 }
 
-TEST_CASE("scurve_counter checks the candidate count against the 99% interval", "[demo]") {
-  // 1,000 pairs at J = 0.5, r = 4, b = 32: p = 0.873211.
-  // expected = 1000 * 0.873211 = 873.21.
-  // SD = sqrt(1000 * 0.873211 * 0.126789) = sqrt(110.71) = 10.52, and 2.5758 * 10.52 = 27.10.
-  // So the interval is [846.11, 900.31]: 873 candidates PASS, and 800 candidates FAIL.
+TEST_CASE("poisson_binomial_p_value is the exact two-sided tail", "[demo]") {
+  // 4 fair coins: P(X = 0..4) = 1, 4, 6, 4, 1 out of 16.
+  const std::vector<double> coins(4, 0.5);
+  REQUIRE(demo::poisson_binomial_p_value(coins, 0) == Approx(2.0 / 16).margin(1e-12));
+  REQUIRE(demo::poisson_binomial_p_value(coins, 1) == Approx(10.0 / 16).margin(1e-12));
+  REQUIRE(demo::poisson_binomial_p_value(coins, 2) == 1.0);
+  REQUIRE(demo::poisson_binomial_p_value(coins, 4) == Approx(2.0 / 16).margin(1e-12));
+  // p = {0.2, 0.9}: P(X = 0) = 0.08, P(X = 1) = 0.74, P(X = 2) = 0.18.
+  REQUIRE(demo::poisson_binomial_p_value({0.2, 0.9}, 2) == Approx(0.36).margin(1e-12));
+  REQUIRE(demo::poisson_binomial_p_value({0.0, 1.0}, 1) == 1.0);
+  REQUIRE(demo::poisson_binomial_p_value({0.0, 1.0}, 0) == 0.0);
+  REQUIRE(demo::poisson_binomial_p_value({0.5}, 2) == 0.0);  // more than the pair count
+}
+
+TEST_CASE("scurve_counter bins the pairs and checks each bin", "[demo]") {
+  // 1,000 pairs at J = 0.5, r = 4, b = 32: p = 0.873211, so expected = 873.21.
   const auto bin_with = [](std::size_t pairs, std::size_t candidates) {
     demo::scurve_counter counter(4, 32);
     for (std::size_t i = 0; i < pairs; ++i) {
@@ -222,21 +235,80 @@ TEST_CASE("scurve_counter checks the candidate count against the 99% interval", 
   REQUIRE(good.pairs == 1000);
   REQUIRE(good.candidates == 873);
   REQUIRE(good.expected == Approx(873.211).margin(1e-3));
-  REQUIRE(good.sd == Approx(std::sqrt(1000 * 0.873211 * 0.126789)).margin(1e-4));
-  REQUIRE(good.sd == Approx(10.52).margin(0.01));
-  REQUIRE(good.checked);
+  const std::vector<double> probs(1000, demo::candidate_probability(0.5, 4, 32));
+  REQUIRE(good.p_value == demo::poisson_binomial_p_value(probs, 873));
+  REQUIRE(good.filled);
   REQUIRE(good.pass);
 
-  const auto bad = bin_with(1000, 800);
-  REQUIRE(bad.checked);
+  const auto bad = bin_with(1000, 800);  // about 7 SD below the expected count
+  REQUIRE(bad.filled);
+  REQUIRE(bad.p_value < demo::SCURVE_ALPHA / demo::NUM_BINS);
   REQUIRE(!bad.pass);
 
-  REQUIRE(!bin_with(999, 873).checked);  // fewer than MIN_BIN_PAIRS pairs
+  const auto small = bin_with(999, 873);  // fewer than MIN_BIN_PAIRS pairs
+  REQUIRE(!small.filled);
+  REQUIRE(!small.pass);
+  REQUIRE(!demo::scurve_passes({good, small}));
+  REQUIRE(demo::scurve_passes({good}));
 
-  const auto table = demo::scurve_table({good});
-  REQUIRE(table.find("| [0.5, 0.6) | 1000 | 873 | 873.21 | 10.52 | 0.873000 | 0.873211 | PASS |") !=
+  REQUIRE(demo::scurve_table({good}).find("| [0.5, 0.6) | 1000 | 873 | 873.21 | 0.873000 | 0.873211 | ") !=
           std::string::npos);
-  REQUIRE(demo::scurve_table({bin_with(999, 873)}).find("not checked") != std::string::npos);
+  REQUIRE(demo::scurve_table({bad}).find(" | FAIL |") != std::string::npos);
+  REQUIRE(demo::scurve_table({small}).find("FAIL (bin not filled)") != std::string::npos);
+}
+
+namespace {
+
+using datasketches::minhash_lsh_index;
+using datasketches::minhash_sketch;
+
+std::vector<uint64_t> real_keys(const minhash_sketch& s) {
+  return minhash_lsh_index::band_keys(s, demo::LSH_BANDS);
+}
+
+// Band keys made from `rows_used` of the 4 slots of each band. With slot0_only, every slot is
+// read as slot 0, as if every slot had the same seed.
+std::vector<uint64_t> partial_keys(const minhash_sketch& s, unsigned rows_used, bool slot0_only) {
+  const auto& sig = s.get_signature();
+  std::vector<uint64_t> keys;
+  for (uint64_t band = 0; band < demo::LSH_BANDS; ++band) {
+    std::vector<uint64_t> slots;
+    for (unsigned r = 0; r < rows_used; ++r) {
+      slots.push_back(slot0_only ? sig[0] : sig[band * demo::LSH_ROWS + r]);
+    }
+    keys.push_back(XXHash64::hash(slots.data(), slots.size() * sizeof(uint64_t), s.get_seed() + band));
+  }
+  return keys;
+}
+
+}  // namespace
+
+TEST_CASE("scurve_check passes the real band keys and fails broken ones", "[demo]") {
+  const auto real = demo::scurve_check(real_keys, demo::LSH_ROWS, demo::LSH_BANDS);
+  INFO(demo::scurve_table(real));
+  for (const auto& b : real) {
+    REQUIRE(b.pairs == demo::SCURVE_PAIRS_PER_BIN);
+  }
+  REQUIRE(demo::scurve_passes(real));
+
+  // Each broken version must fail the check, as computed for 4 rows and 32 bands.
+  const std::vector<std::pair<std::string, demo::band_key_function>> broken = {
+      {"2-slot bands", [](const minhash_sketch& s) { return minhash_lsh_index::band_keys(s, 2 * demo::LSH_BANDS); }},
+      // 4 is the smallest band loss that 2,000 pairs per bin detect. 1 missing band moves the rate by
+      // about 1 point, which is too small; the test vectors of the library catch a wrong key count.
+      {"4 missing bands", [](const minhash_sketch& s) {
+         auto keys = real_keys(s);
+         keys.resize(keys.size() - 4);
+         return keys;
+       }},
+      {"a key from 3 of the 4 slots", [](const minhash_sketch& s) { return partial_keys(s, 3, false); }},
+      {"the same seed in every slot", [](const minhash_sketch& s) { return partial_keys(s, 4, true); }},
+  };
+  for (const auto& variant : broken) {
+    const auto bins = demo::scurve_check(variant.second, demo::LSH_ROWS, demo::LSH_BANDS);
+    INFO(variant.first << "\n" << demo::scurve_table(bins));
+    CHECK(!demo::scurve_passes(bins));
+  }
 }
 
 TEST_CASE("pair_counts counts similar, verified and both", "[demo]") {

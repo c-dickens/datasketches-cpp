@@ -28,6 +28,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -104,7 +105,6 @@ constexpr uint16_t LSH_K = 128;
 constexpr uint16_t LSH_BANDS = 32;
 constexpr unsigned LSH_ROWS = 4;           // LSH_K / LSH_BANDS
 constexpr double LSH_THRESHOLD = 0.5;
-constexpr double Z_99 = 2.5758;            // two-sided 99% normal quantile
 constexpr std::size_t LARGEST_BUCKETS = 10;
 constexpr std::size_t BUCKET_EXAMPLES = 3;
 
@@ -115,17 +115,25 @@ double candidate_probability(double j, unsigned rows, unsigned bands);
 /// Throws std::invalid_argument if the sizes differ.
 bool is_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b);
 
+constexpr double SCURVE_ALPHA = 1e-6;              // false-FAIL rate of the whole table (Bonferroni over the bins)
+constexpr std::size_t SCURVE_PAIRS_PER_BIN = 2000;
+constexpr uint64_t SCURVE_UNION = 1000;            // |S1 ∪ S2| of each synthetic pair
+
+/// The two-sided exact p-value of `observed` for a sum of independent Bernoulli(p_i):
+/// min(1, 2 min(P(X <= observed), P(X >= observed))).
+double poisson_binomial_p_value(const std::vector<double>& probs, std::size_t observed);
+
 struct scurve_bin {
   std::size_t bin;
   std::size_t pairs;
   std::size_t candidates;
   double expected;  // sum of p_i, with p_i = candidate_probability(J_i, rows, bands)
-  double sd;        // sqrt(sum of p_i (1 - p_i))
-  bool checked;     // pairs >= MIN_BIN_PAIRS
-  bool pass;        // |candidates - expected| <= Z_99 * sd
+  double p_value;   // poisson_binomial_p_value of the candidate count
+  bool filled;      // pairs >= MIN_BIN_PAIRS
+  bool pass;        // filled and p_value >= SCURVE_ALPHA / NUM_BINS
 };
 
-/// Counts the S-curve check one pair at a time, so that MH-15 can stream millions of pairs.
+/// Collects the S-curve check one pair at a time. It keeps each p_i, for the exact p-value.
 class scurve_counter {
 public:
   scurve_counter(unsigned rows, unsigned bands);
@@ -133,18 +141,26 @@ public:
   std::vector<scurve_bin> bins() const;  // NUM_BINS bins, by jaccard_bin(exact)
 
 private:
-  struct sums {
-    std::size_t pairs = 0;
-    std::size_t candidates = 0;
-    double expected = 0;
-    double variance = 0;
-  };
   unsigned rows_;
   unsigned bands_;
-  std::array<sums, NUM_BINS> sums_{};
+  std::array<std::vector<double>, NUM_BINS> probs_{};
+  std::array<std::size_t, NUM_BINS> candidates_{};
 };
 
-/// A Markdown table with one row for each bin, and PASS, FAIL or "not checked".
+/// True when every bin passes.
+bool scurve_passes(const std::vector<scurve_bin>& bins);
+
+/// The band keys of one sketch. The real function is minhash_lsh_index::band_keys(sketch, LSH_BANDS).
+using band_key_function = std::function<std::vector<uint64_t>(const datasketches::minhash_sketch&)>;
+
+/// The S-curve check on synthetic integer sets. Each bin gets SCURVE_PAIRS_PER_BIN pairs
+/// S1 = [o, o + a + c) and S2 = [o + a, o + 2a + c), with 2a + c = SCURVE_UNION, so J = c / SCURVE_UNION.
+/// c takes the even values of the bin in turn. Pair i has o = i * 2^32, so no item is in 2 pairs.
+/// The sketches have k = rows * bands and the default seed. A pair is a candidate when
+/// is_candidate(keys_of(s1), keys_of(s2)).
+std::vector<scurve_bin> scurve_check(const band_key_function& keys_of, unsigned rows, unsigned bands);
+
+/// A Markdown table with one row for each bin, and PASS, FAIL or "FAIL (bin not filled)".
 std::string scurve_table(const std::vector<scurve_bin>& bins);
 
 /// Counts for recall and precision. recall = both / similar, precision = both / verified.

@@ -17,12 +17,11 @@
  * under the License.
  */
 
-// Checks the LSH index on 20 Newsgroups: the candidate rate against the S-curve
-// 1 - (1 - J^r)^b, that cross-posts land in one cluster, recall and precision,
-// the largest buckets, and the time of LSH against exact all-pairs.
+// Checks the LSH index: the candidate rate of synthetic integer sets against the S-curve
+// 1 - (1 - J^r)^b, and, on 20 Newsgroups, that cross-posts land in one cluster. It also
+// reports recall, precision and false collisions on the pairs of MH-8, and the largest buckets.
 // Usage: lsh_20news <20_newsgroups directory> <output .md file>
 
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -61,13 +60,8 @@ const char* const LICENCE_HEADER =
     "under the License.\n"
     "-->\n\n";
 
-using clock_type = std::chrono::steady_clock;
 using datasketches::minhash_lsh_index;
 using shingle_set = std::vector<std::string>;
-
-double seconds_since(clock_type::time_point start) {
-  return std::chrono::duration<double>(clock_type::now() - start).count();
-}
 
 std::string fixed(double value, int digits) {
   std::ostringstream os;
@@ -86,6 +80,11 @@ const char* verdict(bool pass) {
 }
 
 int run(const std::string& data_dir, const std::string& out_path) {
+  const auto scurve = demo::scurve_check(
+      [](const datasketches::minhash_sketch& s) { return minhash_lsh_index::band_keys(s, demo::LSH_BANDS); },
+      demo::LSH_ROWS, demo::LSH_BANDS);
+  const bool scurve_pass = demo::scurve_passes(scurve);
+
   const auto posts = news20::load_posts(data_dir);
   std::vector<shingle_set> sets;
   std::vector<std::string> ids;
@@ -97,8 +96,6 @@ int run(const std::string& data_dir, const std::string& out_path) {
   }
   const std::size_t n_posts = posts.size();
 
-  // LSH, timed: sketch, add and cluster.
-  const auto lsh_start = clock_type::now();
   std::vector<datasketches::minhash_sketch> sketches;
   sketches.reserve(n_posts);
   minhash_lsh_index index(demo::LSH_BANDS, demo::LSH_THRESHOLD);
@@ -109,7 +106,6 @@ int run(const std::string& data_dir, const std::string& out_path) {
     }
   }
   const auto clusters = index.get_duplicate_clusters();
-  const double lsh_seconds = seconds_since(lsh_start);
   const std::size_t indexed = index.get_num_documents();
 
   std::vector<std::vector<uint64_t>> keys(n_posts);
@@ -121,9 +117,10 @@ int run(const std::string& data_dir, const std::string& out_path) {
 
   // The pairs of MH-8, without the pairs with a post that is not indexed.
   const auto pairs = demo::check_pairs(ids, demo::SAMPLE_SIZE, demo::SAMPLE_SEED);
-  demo::scurve_counter scurve(demo::LSH_ROWS, demo::LSH_BANDS);
   demo::pair_counts counts;
   std::size_t left_out = 0;
+  std::size_t disjoint = 0;            // pairs with exact J = 0
+  std::size_t disjoint_candidates = 0;  // of them, the candidates: false collisions of the band keys
   for (const auto& pr : pairs) {
     if (keys[pr.first].empty() || keys[pr.second].empty()) {
       ++left_out;
@@ -132,13 +129,11 @@ int run(const std::string& data_dir, const std::string& out_path) {
     const double exact = news20::jaccard(sets[pr.first], sets[pr.second]);
     const bool candidate = demo::is_candidate(keys[pr.first], keys[pr.second]);
     const bool verified = candidate && sketches[pr.first].jaccard(sketches[pr.second]) >= demo::LSH_THRESHOLD;
-    scurve.add(exact, candidate);
+    if (exact == 0.0) {
+      ++disjoint;
+      disjoint_candidates += candidate ? 1 : 0;
+    }
     counts.add(exact >= demo::LSH_THRESHOLD, verified);
-  }
-  const auto bins = scurve.bins();
-  bool scurve_pass = true;
-  for (const auto& b : bins) {
-    scurve_pass = scurve_pass && (!b.checked || b.pass);
   }
 
   // Cross-posts: each pair of indexed posts that share a Message-ID must be in one cluster.
@@ -165,21 +160,6 @@ int run(const std::string& data_dir, const std::string& out_path) {
 
   const auto buckets = demo::largest_buckets(keys, demo::LARGEST_BUCKETS);
 
-  // Exact all-pairs on the sample, timed, then scaled to all posts by the pair count.
-  const auto sample = demo::sample_indices(n_posts, demo::SAMPLE_SIZE, demo::SAMPLE_SEED);
-  double sink = 0;  // used below, so that the compiler keeps the loop
-  const auto exact_start = clock_type::now();
-  for (std::size_t a = 0; a < sample.size(); ++a) {
-    for (std::size_t b = a + 1; b < sample.size(); ++b) {
-      sink += news20::jaccard(sets[sample[a]], sets[sample[b]]);
-    }
-  }
-  const double sample_seconds = seconds_since(exact_start);
-  const auto big_n = static_cast<double>(n_posts);
-  const auto small_n = static_cast<double>(sample.size());
-  const double factor = big_n * (big_n - 1.0) / (small_n * (small_n - 1.0));
-  const double all_seconds = sample_seconds * factor;
-
   const bool overall = scurve_pass && cross_pass;
 
   std::ostringstream md;
@@ -188,6 +168,18 @@ int run(const std::string& data_dir, const std::string& out_path) {
   md << "Written by `build/lsh_20news` (`./run_demos.sh`). The ticket is MH-14.\n\n";
   md << "Index: k = " << demo::LSH_K << ", " << demo::LSH_BANDS << " bands of " << demo::LSH_ROWS
      << " slots, threshold " << fixed(demo::LSH_THRESHOLD, 1) << ".\n\n";
+  md << "## S-curve (synthetic sets): " << verdict(scurve_pass) << "\n\n";
+  md << "Each pair is 2 synthetic integer sets S1 = [o, o + a + c) and S2 = [o + a, o + 2a + c), with 2a + c = "
+     << demo::SCURVE_UNION << ", so exact J = c / " << demo::SCURVE_UNION << ". Each bin has "
+     << demo::SCURVE_PAIRS_PER_BIN << " pairs, with J spread across the bin, and no item is in 2 pairs. "
+        "A pair is a candidate when its band keys are equal in at least one band. The candidate count of a bin "
+        "is a sum of independent Bernoulli(p_i), with p_i = 1 − (1 − J_i^"
+     << demo::LSH_ROWS << ")^" << demo::LSH_BANDS << ". A bin passes when its exact two-sided p-value is at least "
+     << demo::SCURVE_ALPHA << " / " << demo::NUM_BINS
+     << ", so a correct index fails the table by chance with a probability of at most " << demo::SCURVE_ALPHA
+     << ".\n\n";
+  md << demo::scurve_table(scurve) << "\n";
+
   md << "## Posts and pairs\n\n";
   md << "- posts: " << n_posts << "\n";
   md << "- indexed posts (posts with at least one shingle): " << indexed << "\n";
@@ -196,13 +188,6 @@ int run(const std::string& data_dir, const std::string& out_path) {
      << demo::SAMPLE_SEED << ", plus the `Message-ID` pairs): " << pairs.size() << "\n";
   md << "- pairs left out (a post is not indexed): " << left_out << "\n";
   md << "- pairs checked: " << pairs.size() - left_out << "\n\n";
-
-  md << "## S-curve: " << verdict(scurve_pass) << "\n\n";
-  md << "A pair is a candidate when its band keys are equal in at least one band. In each J bin with at least "
-     << demo::MIN_BIN_PAIRS << " pairs, the candidate count must be within expected ± " << demo::Z_99
-     << " SD. Expected = Σ p_i and SD = √Σ p_i (1 − p_i), with p_i = 1 − (1 − J_i^" << demo::LSH_ROWS << ")^"
-     << demo::LSH_BANDS << ".\n\n";
-  md << demo::scurve_table(bins) << "\n";
 
   md << "## Cross-posts: " << verdict(cross_pass) << "\n\n";
   md << "Each pair of indexed posts that share a `Message-ID` must be in one cluster of "
@@ -220,6 +205,12 @@ int run(const std::string& data_dir, const std::string& out_path) {
   md << "- recall (both / similar): " << ratio(counts.both, counts.similar) << "\n";
   md << "- precision (both / verified): " << ratio(counts.both, counts.verified) << "\n\n";
 
+  md << "## False collisions\n\n";
+  md << "Candidates among the pairs with exact J = 0. The band keys of such a pair are equal only when "
+        "2 different 64-bit hashes collide.\n\n";
+  md << "- pairs with exact J = 0: " << disjoint << "\n";
+  md << "- candidates among them: " << disjoint_candidates << "\n\n";
+
   md << "## The " << demo::LARGEST_BUCKETS << " largest buckets\n\n";
   md << "| band | size | first posts |\n|---:|---:|---|\n";
   for (const auto& bk : buckets) {
@@ -232,25 +223,13 @@ int run(const std::string& data_dir, const std::string& out_path) {
   }
   md << "\n";
 
-  md << "## Time (changes from run to run)\n\n";
-  md << "LSH covers sketching, `add` and `get_duplicate_clusters()` over all posts. Exact all-pairs covers "
-        "`news20::jaccard` over all pairs of the " << sample.size() << " sampled posts. Neither covers loading or "
-        "shingling.\n\n";
-  md << "- LSH, all posts: " << fixed(lsh_seconds, 2) << " s\n";
-  md << "- exact all-pairs, sample (T_sample): " << fixed(sample_seconds, 2) << " s\n";
-  md << "- factor N(N − 1) / (n(n − 1)), N = " << n_posts << ", n = " << sample.size() << ": " << fixed(factor, 2)
-     << "\n";
-  md << "- exact all-pairs, all posts (T_all = T_sample × factor): " << fixed(all_seconds, 2) << " s\n";
-  md << "- T_all / LSH time: " << fixed(all_seconds / lsh_seconds, 2) << "\n\n";
-
   md << "Overall: " << verdict(overall) << "\n";
 
   std::cout << "S-curve: " << verdict(scurve_pass) << "\n";
   std::cout << "cross-posts: " << verdict(cross_pass) << "\n";
   std::cout << "recall " << ratio(counts.both, counts.similar) << ", precision "
             << ratio(counts.both, counts.verified) << "\n";
-  std::cout << "LSH " << fixed(lsh_seconds, 2) << " s, exact all-pairs (scaled) " << fixed(all_seconds, 2)
-            << " s (sink " << sink << ")\n";
+  std::cout << "false collisions " << disjoint_candidates << " of " << disjoint << "\n";
   std::cout << "Overall: " << verdict(overall) << "\n";
 
   std::ofstream out(out_path, std::ios::binary);

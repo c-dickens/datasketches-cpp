@@ -137,30 +137,43 @@ build/lsh_20news data/20_newsgroups results/lsh_20news.md
 `./run_demos.sh` runs this demo. It indexes every post with a non-empty
 shingle set at k = 128, with 32 bands of 4 slots and a threshold of 0.5. It
 writes `results/lsh_20news.md`, which is committed, with the last line
-`Overall: PASS` or `Overall: FAIL`. The section "Time" changes from run to run.
+`Overall: PASS` or `Overall: FAIL`. `Overall: PASS` needs both checks below.
+A pair is a candidate when its band keys are equal in at least one band.
 
-The pairs are those of the MinHash demo. Pairs with a post that has no
-shingles are left out, because such a post cannot be indexed. A pair is a
-candidate when its band keys are equal in at least one band. It is verified
-when it is a candidate and its estimated J is at least 0.5.
+**S-curve check (synthetic sets).** `demo::scurve_check` makes 2,000 pairs of
+integer sets in each J bin of width 0.1: S1 = [o, o + a + c) and
+S2 = [o + a, o + 2a + c), with 2a + c = 1,000, so exact J = c / 1,000. J is
+spread across each bin, and each pair has its own offset o, so no item is in 2
+pairs and the pairs are independent. Real posts are not used here: pairs of
+posts share posts, so they are not independent, and their candidate counts
+spread more than the theory allows. In each bin, the candidate count is a sum of independent
+Bernoulli(p_i), with p_i = 1 − (1 − J_i⁴)³². A bin passes when the exact
+two-sided p-value of its count is at least 10⁻⁷. So a correct index fails the
+table of 10 bins by chance with a probability of at most 10⁻⁶. A bin with
+fewer than 1,000 pairs fails ("bin not filled").
 
-**S-curve check.** In each J bin of width 0.1 with at least 1,000 pairs, the
-candidate count must be within Σ p_i ± 2.5758 · √Σ p_i(1 − p_i), with
-p_i = 1 − (1 − J_i⁴)³². This is the normal approximation of the 99% interval
-of a sum of Bernoulli(p_i) values. A bin with fewer pairs is reported as
-"not checked".
+`demo_test` runs the same check on the real band keys and on 4 broken
+versions, and each broken version must fail: 2-slot bands, 4 of the 32 bands
+missing, a band key from 3 of its 4 slots, and every slot read as slot 0 (as if
+every slot had the same seed). With 2,000 pairs per bin, the smallest change of
+the candidate rate that the check sees is about 2 points near J = 0.1 and
+about 5 to 6 points between J = 0.3 and 0.5. 1 missing band changes the rate
+by about 1 point, so the check does not see it. The band-key test vectors of the
+library catch that fault.
 
 **Cross-post check.** Each pair of indexed posts that share a `Message-ID`
 must be in one cluster of `get_duplicate_clusters()`.
 
-**Report.** Recall and precision of the verified pairs against exact J ≥ 0.5,
-and the 10 largest buckets (one bucket is one band key in one band).
+**Report.** These use the pairs of the MinHash demo (2,000 sampled posts plus
+the `Message-ID` pairs). Pairs with a post that has no shingles are left out,
+because such a post cannot be indexed.
 
-**Time.** The LSH time covers sketching, `add` and `get_duplicate_clusters()`
-over all N posts. The exact time T_sample covers `news20::jaccard` over all
-pairs of the n = 2,000 sampled posts. It is scaled to all posts by the pair
-count: T_all = T_sample · N(N − 1) / (n(n − 1)), about 100 × T_sample. Neither
-time covers loading or shingling.
+- Recall and precision of the verified pairs (candidate and estimated
+  J ≥ 0.5) against exact J ≥ 0.5.
+- False collisions: the candidates among the pairs with exact J = 0.
+- The 10 largest buckets (one bucket is one band key in one band).
+
+The speed of LSH against exact all-pairs is in MH-15, not here.
 
 ## Band-key test vectors
 

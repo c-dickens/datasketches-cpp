@@ -23,6 +23,23 @@ Written by `build/lsh_20news` (`./run_demos.sh`). The ticket is MH-14.
 
 Index: k = 128, 32 bands of 4 slots, threshold 0.5.
 
+## S-curve (synthetic sets): PASS
+
+Each pair is 2 synthetic integer sets S1 = [o, o + a + c) and S2 = [o + a, o + 2a + c), with 2a + c = 1000, so exact J = c / 1000. Each bin has 2000 pairs, with J spread across the bin, and no item is in 2 pairs. A pair is a candidate when its band keys are equal in at least one band. The candidate count of a bin is a sum of independent Bernoulli(p_i), with p_i = 1 − (1 − J_i^4)^32. A bin passes when its exact two-sided p-value is at least 1e-06 / 10, so a correct index fails the table by chance with a probability of at most 1e-06.
+
+| J bin | pairs | candidates | expected | candidate rate | expected rate | p-value | check |
+|---|---:|---:|---:|---:|---:|---:|---|
+| [0.0, 0.1) | 2000 | 2 | 1.22 | 0.001000 | 0.000608 | 0.686 | PASS |
+| [0.1, 0.2) | 2000 | 43 | 38.19 | 0.021500 | 0.019097 | 0.472 | PASS |
+| [0.2, 0.3) | 2000 | 268 | 246.53 | 0.134000 | 0.123267 | 0.151 | PASS |
+| [0.3, 0.4) | 2000 | 728 | 769.29 | 0.364000 | 0.384646 | 0.0551 | PASS |
+| [0.4, 0.5) | 2000 | 1451 | 1456.78 | 0.725500 | 0.728392 | 0.784 | PASS |
+| [0.5, 0.6) | 2000 | 1890 | 1889.52 | 0.945000 | 0.944760 | 1 | PASS |
+| [0.6, 0.7) | 2000 | 1989 | 1993.44 | 0.994500 | 0.996722 | 0.139 | PASS |
+| [0.7, 0.8) | 2000 | 2000 | 1999.95 | 1.000000 | 0.999974 | 1 | PASS |
+| [0.8, 0.9) | 2000 | 2000 | 2000.00 | 1.000000 | 1.000000 | 1 | PASS |
+| [0.9, 1.0] | 2000 | 2000 | 2000.00 | 1.000000 | 1.000000 | 1 | PASS |
+
 ## Posts and pairs
 
 - posts: 19997
@@ -31,23 +48,6 @@ Index: k = 128, 32 bands of 4 slots, threshold 0.5.
 - pairs (the pairs of MH-8: all pairs of 2000 sampled posts, seed 1, plus the `Message-ID` pairs): 1999533
 - pairs left out (a post is not indexed): 13972
 - pairs checked: 1985561
-
-## S-curve: PASS
-
-A pair is a candidate when its band keys are equal in at least one band. In each J bin with at least 1000 pairs, the candidate count must be within expected ± 2.5758 SD. Expected = Σ p_i and SD = √Σ p_i (1 − p_i), with p_i = 1 − (1 − J_i^4)^32.
-
-| J bin | pairs | candidates | expected | SD | candidate rate | expected rate | check |
-|---|---:|---:|---:|---:|---:|---:|---|
-| [0.0, 0.1) | 1984770 | 0 | 0.23 | 0.48 | 0.000000 | 0.000000 | PASS |
-| [0.1, 0.2) | 133 | 2 | 2.05 | 1.41 | 0.015038 | 0.015377 | not checked |
-| [0.2, 0.3) | 63 | 10 | 6.47 | 2.38 | 0.158730 | 0.102709 | not checked |
-| [0.3, 0.4) | 27 | 10 | 9.70 | 2.45 | 0.370370 | 0.359080 | not checked |
-| [0.4, 0.5) | 10 | 6 | 7.07 | 1.41 | 0.600000 | 0.707225 | not checked |
-| [0.5, 0.6) | 8 | 8 | 7.31 | 0.79 | 1.000000 | 0.913451 | not checked |
-| [0.6, 0.7) | 6 | 6 | 5.96 | 0.19 | 1.000000 | 0.993605 | not checked |
-| [0.7, 0.8) | 3 | 3 | 3.00 | 0.01 | 1.000000 | 0.999981 | not checked |
-| [0.8, 0.9) | 1 | 1 | 1.00 | 0.00 | 1.000000 | 1.000000 | not checked |
-| [0.9, 1.0] | 540 | 540 | 540.00 | 0.00 | 1.000000 | 1.000000 | not checked |
 
 ## Cross-posts: PASS
 
@@ -67,6 +67,13 @@ Similar: exact J ≥ 0.5. Verified: candidate and estimated J ≥ 0.5.
 - recall (both / similar): 0.9946
 - precision (both / verified): 0.9964
 
+## False collisions
+
+Candidates among the pairs with exact J = 0. The band keys of such a pair are equal only when 2 different 64-bit hashes collide.
+
+- pairs with exact J = 0: 1979373
+- candidates among them: 0
+
 ## The 10 largest buckets
 
 | band | size | first posts |
@@ -81,15 +88,5 @@ Similar: exact J ≥ 0.5. Verified: candidate and estimated J ≥ 0.5.
 | 1 | 7 | `rec.sport.baseball/104712`, `rec.sport.baseball/104713`, `rec.sport.baseball/104714` |
 | 2 | 7 | `rec.sport.baseball/104712`, `rec.sport.baseball/104713`, `rec.sport.baseball/104714` |
 | 3 | 7 | `rec.sport.baseball/104712`, `rec.sport.baseball/104713`, `rec.sport.baseball/104714` |
-
-## Time (changes from run to run)
-
-LSH covers sketching, `add` and `get_duplicate_clusters()` over all posts. Exact all-pairs covers `news20::jaccard` over all pairs of the 2000 sampled posts. Neither covers loading or shingling.
-
-- LSH, all posts: 0.74 s
-- exact all-pairs, sample (T_sample): 6.32 s
-- factor N(N − 1) / (n(n − 1)), N = 19997, n = 2000: 100.02
-- exact all-pairs, all posts (T_all = T_sample × factor): 631.83 s
-- T_all / LSH time: 853.11
 
 Overall: PASS
