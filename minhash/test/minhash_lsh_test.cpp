@@ -306,9 +306,11 @@ TEST_CASE("minhash lsh: clusters match the reference on planted near-duplicates"
     // two copies identical to id c (J = 1)
     sketches.push_back(build({{base, base + 100}}));
     sketches.push_back(build({{base, base + 100}}));
-    // two copies identical to each other, J = 95/105 with id c
-    sketches.push_back(build({{base + 5, base + 100}, {10000000 + base, 10000000 + base + 5}}));
-    sketches.push_back(build({{base + 5, base + 100}, {10000000 + base, 10000000 + base + 5}}));
+    // two copies identical to each other, J = 99/101 with id c. Matches with id c ~ Binomial(k, J):
+    // mean 109.8, SD sqrt(k J (1 - J)) = 1.47, and verification needs 90, about 13 SD below the mean.
+    // P(no candidate) = (1 - J^8)^14 = 2.4e-12.
+    sketches.push_back(build({{base + 1, base + 100}, {10000000 + base, 10000000 + base + 1}}));
+    sketches.push_back(build({{base + 1, base + 100}, {10000000 + base, 10000000 + base + 1}}));
     // J = 75/125 = 0.6 with id c, below the threshold
     sketches.push_back(build({{base + 25, base + 100}, {20000000 + base, 20000000 + base + 25}}));
   }
