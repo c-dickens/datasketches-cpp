@@ -24,7 +24,7 @@ under the License.
 This decision comes before serialization (MH-23), because after a format exists a change to the slot values or the stored form is expensive. It answers two questions.
 
 1. **Slot algorithm.** Format version 1 keeps the k-hash SplitMix64 expansion of ADR-0002. It does not change to a faster one-hash scheme.
-2. **Exact mode.** Version 1 has no exact mode. Its flags byte reserves one bit for a later hash-list form, and a version 1 reader rejects any flag bit that it does not know.
+2. **Exact mode.** Version 1 has no exact mode. Its flags byte reserves one bit for a later hash-list form. A version 1 reader rejects a buffer that has this reserved bit set, and also a buffer that has any unassigned flag bit set.
 
 ## Evidence
 
@@ -35,9 +35,9 @@ The accuracy numbers come from full runs. The speed numbers come from the MH-18 
 | Update, `uint64_t` items | 123 ns per item (about 0.47 ns per slot, O(k)) | 2.2 to 6.2 ns per item (about O(1)) | MH-18 smoke |
 | Update, k = 16 to 256 | 8 to 56 times slower than theta | | MH-18 smoke |
 | `jaccard()` | 23 ns | 8,300 ns (builds a union and an intersection) | MH-18 smoke |
-| Accuracy at large n, same bytes | about the same as theta (0.96 to 1.06 times) | | MH-17 |
-| Small sets, k = 4096, n = 100 | 8k bytes, error √(J(1 − J)/k) | exact, 16 + 8n bytes (about 40 times smaller) | MH-17 |
-| LSH band rate J^r at 10 items | correct | not possible: no aligned slots | MH-6, research |
+| Accuracy per byte, n = 65536, J = 0.5, k ≥ 64 | baseline | SD × √(theta bytes / MinHash bytes) is 0.96 to 1.06 times the MinHash SD: about the same | MH-17: PR c-dickens/datasketches-cpp#17, section "Finding", from `accuracy_n.tsv` and `accuracy_n_half.tsv` |
+| Small sets, k = 4096, n = 100 | 8k bytes, error √(J(1 − J)/k) | exact, 16 + 8n bytes (about 40 times smaller) | MH-17: PR c-dickens/datasketches-cpp#17, section "Finding" |
+| LSH band rate J^4: k = 128, 32 bands of r = 4, union of 10 items, J = 0.2 | within ±15% of J^4 over 800,000 band observations | not possible: no aligned slots | MH-6: `minhash/test/minhash_sketch_stats_test.cpp`, "minhash sketch stats: band collision rate"; research §1.2 |
 
 Research document "When to use MinHash rather than theta", §1.3: densified one-permutation hashing (OPH) with rotation, in the fully random model, 4000 trials for each row. The table gives the band collision rate divided by J^r. 1.00 is correct.
 
@@ -51,7 +51,7 @@ Research document "When to use MinHash rather than theta", §1.3: densified one-
 
 ## Decision 1: keep k-hash slots
 
-The reason to use MinHash and not theta is LSH: a fixed-length signature whose slots are aligned across sets and independent of each other, at every set size. k-hash MinHash gives the band rate J^r also at 10 items (MH-6, "minhash sketch stats: band collision rate"). Theta has no aligned slots.
+The reason to use MinHash and not theta is LSH: a fixed-length signature whose slots are aligned across sets and independent of each other, at every set size. k-hash MinHash gives the band rate J^r also on very small sets: the MH-6 test "minhash sketch stats: band collision rate" measures J^4 within ±15% at k = 128, r = 4, a union of 10 items and J = 0.2. Theta has no aligned slots.
 
 ### Considered options
 
@@ -75,9 +75,9 @@ The reason to use MinHash and not theta is LSH: a fixed-length signature whose s
 
 ### Consequences
 
-* MH-23 (serialization) reserves one flag bit for a hash-list form. A version 1 reader rejects a buffer with any flag bit that it does not know. A later exact mode then adds a form without breaking version 1 readers or buffers.
+* MH-23 (serialization) reserves one flag bit for a hash-list form. A version 1 reader rejects a buffer that has this reserved bit set, because version 1 cannot read a hash list. It also rejects a buffer that has any unassigned flag bit set. A later exact mode then adds a form without breaking version 1 readers or buffers: a version 1 reader refuses the new form, and it never reads it as slots.
 * The exact mode is a separate later issue. That issue must keep the slot values of this ADR, and its tests must show that a sketch built from a hash list has the same signature as a sketch built item by item.
-* Until then, the small-set gap is a known limit. MH-17 measures it, and `scripts/minhash/results/characterisation/accuracy_n.md` gives the end of the small-set region for each k.
+* Until then, the small-set gap is a known limit, and MH-17 measures it. At the same nominal k, the theta ±2σ spread stays smaller than the MinHash spread over the whole n range (`scripts/minhash/results/characterisation/accuracy_n.md`: "> 65536" for every k). With theta at half k (lg_k = log2(K) − 1), `scripts/minhash/results/characterisation/accuracy_n_half.md` gives the end of the small-set region for each k: for example n = 431 to 450 at k = 256, and n = 6889 to 7194 at k = 4096.
 
 ## Out of scope
 
