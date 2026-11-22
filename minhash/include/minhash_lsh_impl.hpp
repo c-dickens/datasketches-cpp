@@ -128,20 +128,44 @@ auto minhash_lsh_index_alloc<A>::get_duplicate_clusters() const -> vector_of_clu
     return x;
   };
 
+  auto join = [&find, &parent, &set_size](size_t a, size_t b) {
+    size_t root_a = find(a);
+    size_t root_b = find(b);
+    if (root_a == root_b) { return; }
+    if (set_size[root_a] < set_size[root_b]) { std::swap(root_a, root_b); }
+    parent[root_b] = root_a;
+    set_size[root_a] += set_size[root_b];
+  };
+
+  const rebind_alloc<size_t> reps_alloc(allocator_);
+  std::vector<size_t, rebind_alloc<size_t>> reps(reps_alloc);
   for (const auto& band: bands_) {
     for (const auto& bucket: band) {
       const auto& members = bucket.second;
-      // pairs within a bucket are examined pairwise: quadratic in the bucket size,
-      // which is fine for near-duplicate buckets but can bite on heavily skewed data
-      for (size_t i = 0; i + 1 < members.size(); ++i) {
-        for (size_t j = i + 1; j < members.size(); ++j) {
-          size_t root_a = find(index_of.at(members[i]));
-          size_t root_b = find(index_of.at(members[j]));
-          if (root_a == root_b) { continue; } // already linked, skip re-verification
-          if (sketches_.at(members[i]).jaccard(sketches_.at(members[j])) >= threshold_) {
-            if (set_size[root_a] < set_size[root_b]) { std::swap(root_a, root_b); }
-            parent[root_b] = root_a;
-            set_size[root_a] += set_size[root_b];
+      // group the members with identical signatures: their J is 1 (the index stores only
+      // non-empty sketches, and the threshold is at most 1), so each group joins one
+      // cluster with no jaccard() call, and keeps one representative for the pair loop
+      reps.clear();
+      for (const uint64_t member: members) {
+        const size_t pos = index_of.at(member);
+        const auto& signature = sketches_.at(member).get_signature();
+        bool grouped = false;
+        for (const size_t rep: reps) {
+          if (sketches_.at(ids[rep]).get_signature() == signature) {
+            join(rep, pos);
+            grouped = true;
+            break;
+          }
+        }
+        if (!grouped) { reps.push_back(pos); }
+      }
+      // the pair loop runs over one representative for each group of identical
+      // signatures; a large bucket of distinct sketches stays quadratic (out of scope)
+      for (size_t i = 0; i + 1 < reps.size(); ++i) {
+        for (size_t j = i + 1; j < reps.size(); ++j) {
+          if (find(reps[i]) == find(reps[j])) { continue; } // already linked, skip re-verification
+          if (sketches_.at(ids[reps[i]]).jaccard(sketches_.at(ids[reps[j]])) >= threshold_) {
+            join(reps[i], reps[j]);
           }
         }
       }
