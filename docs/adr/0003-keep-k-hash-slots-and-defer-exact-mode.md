@@ -65,7 +65,7 @@ The reason to use MinHash and not theta is LSH: a fixed-length signature whose s
 
 ## Decision 2: defer the exact mode, and keep a place for it in the format
 
-**Fact.** The signature depends only on the set of item hashes: slot i is the minimum, over all items, of SplitMix64 step i applied to the XXH64 hash of the item. So a sketch can keep the 64-bit item hashes, without duplicates, while its set is small, and compute the k slot values when it needs them. The result is the same as for a sketch that received the items one at a time. An exact mode therefore changes no slot value and no test vector. It changes only the stored form, the estimator (an exact J when both sketches hold hash lists), and the cost of small sets.
+**Fact.** The signature depends only on the set of seeded item hashes. Slot i is the minimum, over all items, of (SplitMix64 output i from s = XXH64(item bytes, length, seed)) >> 1, as `minhash/SPEC.md` ("Slot values") defines it, with the 63-bit range of ADR-0001. So a sketch can keep the seeded 64-bit XXH64 values of its items, without duplicates, while its set is small, and compute the k slot values when it needs them. The result is the same as for a sketch that received the items one at a time. An exact mode therefore changes no slot value and no test vector. It changes only the stored form, the estimator (an exact J when both sketches hold hash lists), and the cost of small sets.
 
 ### Considered options
 
@@ -76,7 +76,7 @@ The reason to use MinHash and not theta is LSH: a fixed-length signature whose s
 ### Consequences
 
 * MH-23 (serialization) reserves one flag bit for a hash-list form. A version 1 reader rejects a buffer that has this reserved bit set, because version 1 cannot read a hash list. It also rejects a buffer that has any unassigned flag bit set. A later exact mode then adds a form without breaking version 1 readers or buffers: a version 1 reader refuses the new form, and it never reads it as slots.
-* The exact mode is a separate later issue. That issue must keep the slot values of this ADR, and its tests must show that a sketch built from a hash list has the same signature as a sketch built item by item.
+* The exact mode is a separate later issue. That issue must keep the slot values that `minhash/SPEC.md` defines, and its tests must show that a sketch built from a hash list has the same signature as a sketch built item by item.
 * Until then, the small-set gap is a known limit, and MH-17 measures it. At the same nominal k, the theta ±2σ spread stays smaller than the MinHash spread over the whole n range (`scripts/minhash/results/characterisation/accuracy_n.md`: "> 65536" for every k). With theta at half k (lg_k = log2(K) − 1), `scripts/minhash/results/characterisation/accuracy_n_half.md` gives the end of the small-set region for each k: for example n = 431 to 450 at k = 256, and n = 6889 to 7194 at k = 4096.
 
 ## Out of scope
