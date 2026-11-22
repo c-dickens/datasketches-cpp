@@ -17,6 +17,12 @@
  * under the License.
  */
 
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <utility>
+#include <vector>
+
 #include <catch2/catch.hpp>
 
 #include <test_allocator.hpp>
@@ -32,6 +38,60 @@ static minhash_sketch make_sketch(uint64_t from, uint64_t to, uint16_t k = 112,
   for (uint64_t i = from; i < to; ++i) { sketch.update(i); }
   return sketch;
 }
+
+namespace {
+
+// brute-force reference for get_duplicate_clusters(): the id of sketches[i] is i,
+// candidate pairs share the key of one band, verified pairs reach the threshold,
+// and the clusters are the connected components of the verified pairs
+std::vector<std::vector<uint64_t>> reference_clusters(const std::vector<minhash_sketch>& sketches,
+    uint16_t num_bands, double threshold) {
+  std::vector<minhash_lsh_index::vector_u64> keys;
+  keys.reserve(sketches.size());
+  for (const auto& sketch: sketches) { keys.push_back(minhash_lsh_index::band_keys(sketch, num_bands)); }
+
+  std::vector<size_t> parent(sketches.size());
+  for (size_t i = 0; i < parent.size(); ++i) { parent[i] = i; }
+  auto find = [&parent](size_t x) {
+    while (parent[x] != x) { x = parent[x]; }
+    return x;
+  };
+
+  for (size_t i = 0; i < sketches.size(); ++i) {
+    for (size_t j = i + 1; j < sketches.size(); ++j) {
+      bool candidate = false;
+      for (uint16_t band = 0; band < num_bands; ++band) {
+        if (keys[i][band] == keys[j][band]) { candidate = true; break; }
+      }
+      if (candidate && sketches[i].jaccard(sketches[j]) >= threshold) {
+        const size_t root_i = find(i);
+        const size_t root_j = find(j);
+        if (root_i != root_j) { parent[std::max(root_i, root_j)] = std::min(root_i, root_j); }
+      }
+    }
+  }
+
+  // each root is the smallest id of its component, so ascending roots order the
+  // clusters by their smallest id, and ascending ids keep each cluster sorted
+  std::vector<std::vector<uint64_t>> components(sketches.size());
+  for (size_t i = 0; i < sketches.size(); ++i) { components[find(i)].push_back(i); }
+  std::vector<std::vector<uint64_t>> clusters;
+  for (auto& component: components) {
+    if (component.size() >= 2) { clusters.push_back(std::move(component)); }
+  }
+  return clusters;
+}
+
+// a sketch of the items in the half-open ranges [first, second)
+minhash_sketch make_sketch_from_ranges(const std::vector<std::pair<uint64_t, uint64_t>>& ranges, uint16_t k) {
+  auto sketch = minhash_sketch::builder().set_k(k).set_seed(DEFAULT_SEED).build();
+  for (const auto& range: ranges) {
+    for (uint64_t item = range.first; item < range.second; ++item) { sketch.update(item); }
+  }
+  return sketch;
+}
+
+} /* anonymous namespace */
 
 TEST_CASE("minhash lsh: band keys", "[minhash_lsh]") {
   const auto sketch_a = make_sketch(0, 1000);
@@ -205,6 +265,70 @@ TEST_CASE("minhash lsh: allocator", "[minhash_lsh]") {
   }
   REQUIRE(test_allocator_total_bytes == 0);
   REQUIRE(test_allocator_net_allocations == 0);
+}
+
+TEST_CASE("minhash lsh: identical sketches cluster in linear time", "[minhash_lsh]") {
+  const uint64_t num_copies = 100000;
+  const auto sketch = make_sketch(0, 100, 16);
+  minhash_lsh_index index(4, 0.9);
+  for (uint64_t id = 0; id < num_copies; ++id) { index.add(id, sketch); }
+
+  const auto start = std::chrono::steady_clock::now();
+  const auto clusters = index.get_duplicate_clusters();
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  REQUIRE(clusters.size() == 1);
+  REQUIRE(clusters[0].size() == num_copies);
+  for (uint64_t id = 0; id < num_copies; ++id) { REQUIRE(clusters[0][id] == id); }
+#ifdef NDEBUG
+  REQUIRE(elapsed < std::chrono::seconds(1));
+#else
+  (void) elapsed; // the time is checked only in an optimised build
+#endif
+}
+
+TEST_CASE("minhash lsh: clusters match the reference on planted near-duplicates", "[minhash_lsh]") {
+  const uint16_t k = 112;
+  const uint16_t num_bands = 14;
+  const double threshold = 0.8;
+  const uint64_t num_unrelated = 1500;
+  const uint64_t num_planted_bases = 100;
+
+  auto build = [&](const std::vector<std::pair<uint64_t, uint64_t>>& ranges) {
+    return make_sketch_from_ranges(ranges, k);
+  };
+
+  std::vector<minhash_sketch> sketches;
+  sketches.reserve(num_unrelated + 5 * num_planted_bases);
+  for (uint64_t i = 0; i < num_unrelated; ++i) { sketches.push_back(build({{1000 * i, 1000 * i + 100}})); }
+  for (uint64_t c = 0; c < num_planted_bases; ++c) {
+    const uint64_t base = 1000 * c;
+    // two copies identical to id c (J = 1)
+    sketches.push_back(build({{base, base + 100}}));
+    sketches.push_back(build({{base, base + 100}}));
+    // two copies identical to each other, J = 99/101 with id c. Matches with id c ~ Binomial(k, J):
+    // mean 109.8, SD sqrt(k J (1 - J)) = 1.47, and verification needs 90, about 13 SD below the mean.
+    // P(no candidate) = (1 - J^8)^14 = 2.4e-12.
+    sketches.push_back(build({{base + 1, base + 100}, {10000000 + base, 10000000 + base + 1}}));
+    sketches.push_back(build({{base + 1, base + 100}, {10000000 + base, 10000000 + base + 1}}));
+    // J = 75/125 = 0.6 with id c, below the threshold
+    sketches.push_back(build({{base + 25, base + 100}, {20000000 + base, 20000000 + base + 25}}));
+  }
+  REQUIRE(sketches.size() == 2000);
+
+  minhash_lsh_index index(num_bands, threshold);
+  for (size_t i = 0; i < sketches.size(); ++i) { index.add(i, sketches[i]); }
+
+  const auto expected = reference_clusters(sketches, num_bands, threshold);
+  // ids c, 1500 + 5c and 1501 + 5c are identical, and disjoint item sets have J = 0
+  REQUIRE(expected.size() == num_planted_bases);
+  for (const auto& cluster: expected) { REQUIRE(cluster.size() >= 3); }
+
+  const auto clusters = index.get_duplicate_clusters();
+  REQUIRE(clusters.size() == expected.size());
+  for (size_t i = 0; i < clusters.size(); ++i) {
+    REQUIRE(std::vector<uint64_t>(clusters[i].begin(), clusters[i].end()) == expected[i]);
+  }
 }
 
 } /* namespace datasketches */
