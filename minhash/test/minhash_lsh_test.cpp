@@ -94,6 +94,8 @@ minhash_sketch make_sketch_from_ranges(const std::vector<std::pair<uint64_t, uin
 
 // allocations that throwing_allocator makes before it throws std::bad_alloc; negative means no limit
 int64_t allocations_left = -1;
+// allocations of throwing_allocator that are not yet deallocated
+int64_t live_allocations = 0;
 
 template<typename T>
 class throwing_allocator {
@@ -105,9 +107,14 @@ public:
   T* allocate(size_t n) {
     if (allocations_left == 0) { throw std::bad_alloc(); }
     if (allocations_left > 0) { --allocations_left; }
-    return static_cast<T*>(::operator new(n * sizeof(T)));
+    T* p = static_cast<T*>(::operator new(n * sizeof(T)));
+    ++live_allocations;
+    return p;
   }
-  void deallocate(T* p, size_t) { ::operator delete(p); }
+  void deallocate(T* p, size_t) {
+    ::operator delete(p);
+    --live_allocations;
+  }
 };
 
 template<typename T, typename U>
@@ -310,6 +317,7 @@ TEST_CASE("minhash lsh: a failed add leaves the index unchanged", "[minhash_lsh]
       for (uint64_t doc = 0; doc < 3; ++doc) { index.add(doc, build(doc * 200, doc * 200 + 100)); }
       const auto candidates_before = index.query_candidates(added);
 
+      const int64_t live_before = live_allocations;
       allocations_left = budget;
       bool failed = false;
       try {
@@ -320,6 +328,7 @@ TEST_CASE("minhash lsh: a failed add leaves the index unchanged", "[minhash_lsh]
       allocations_left = -1;
       if (!failed) { break; }
       ++num_failures;
+      REQUIRE(live_allocations == live_before); // no bucket or stored sketch is left behind
       REQUIRE(index.get_num_documents() == 3);
       REQUIRE(index.query_candidates(added) == candidates_before);
 
