@@ -383,15 +383,15 @@ svg .mFile { fill: color-mix(in srgb, var(--ok) 45%, var(--surface)); }
   <ul class="facts col">
     <li><strong>Accuracy for each byte.</strong> At n = 65,536 and J = 0.5, the theta SD scaled by √(theta bytes / MinHash bytes) is 0.96 to 1.06 times the MinHash SD, at every k ≥ 64 in both profiles. Both sketches spend about 8 bytes for each sample. <span class="src">PR #17</span></li>
     <li><strong>Theta at the same k</strong> uses 1.0007 to 1.9219 times the MinHash bytes (k ≥ 64) in estimation mode. It is more accurate: its SD is 0.51 to 0.95 times the MinHash theory SD at J = 0.5. <span class="src">PR #17</span> <span class="src">accuracy_n.md</span></li>
-    <li><strong>Theta at half k</strong> uses 0.5007 to 0.9844 times the MinHash bytes. It is exact up to about 0.92k items, and at least as accurate as MinHash up to about 1.7k to 1.8k items. At n = 65,536 it is 1.13 to 1.21 times worse. <span class="src">PR #17</span></li>
+    <li><strong>Theta at half k</strong> uses 0.5007 to 0.9844 times the MinHash bytes. It is exact up to about 0.92k items, and at least as accurate as MinHash up to about 1.7k to 1.8k items. At n = 65,536 its SD is 1.13 to 1.21 times the MinHash theory SD. <span class="src">PR #17</span></li>
     <li><strong>Small sets.</strong> At k = 4096, MinHash is about 40 times larger than theta at n = 100, and about 340 times larger at n = 10. Theta is exact there. <span class="src">PR #17</span></li>
     <li><strong>Memory while updating.</strong> The profiles record the compact size only. A fully grown theta update table is 16K bytes, which is 2 times the MinHash bytes at the same k. <span class="src">PR #17</span></li>
-    <li><strong>Bounds.</strong> At J = 0.5, MinHash 2 SD coverage is 0.948 to 0.985. At J = 0.5, theta 2 SD coverage in estimation mode is 0.949 to 0.979 at the same k, and 0.950 to 0.975 at half k. <span class="src">PR #17</span></li>
+    <li><strong>Bounds.</strong> At J = 0.5 and all k, including k = 16, MinHash 2 SD coverage is 0.948 to 0.985. At J = 0.5, theta 2 SD coverage in estimation mode is 0.949 to 0.979 at the same k, and 0.950 to 0.975 at half k. <span class="src">PR #17</span></li>
   </ul>
 
   <div class="tbl"><table>
     <caption>Theta at half k: where theta stops being at least as accurate as MinHash (the "small-set region") <span class="src">accuracy_n_half.md</span> <span class="src">PR #17</span></caption>
-    <thead><tr><th class="n">k</th><th class="n">Theta exact up to n (J = 0.5)</th><th class="n">Region ends at n, J = 0.1</th><th class="n">J = 0.5</th><th class="n">J = 0.9</th><th class="n">Theta SD / MinHash SD at n = 65,536</th></tr></thead>
+    <thead><tr><th class="n">k</th><th class="n">Theta exact up to n (J = 0.5)</th><th class="n">Region ends at n, J = 0.1</th><th class="n">J = 0.5</th><th class="n">J = 0.9</th><th class="n">Theta SD / MinHash theory SD at n = 65,536</th></tr></thead>
     <tbody>
       <tr><td class="n">64</td><td class="n">59</td><td class="n">112</td><td class="n">117</td><td class="n">117</td><td class="n">1.21</td></tr>
       <tr><td class="n">256</td><td class="n">235</td><td class="n">431</td><td class="n">450</td><td class="n">450</td><td class="n">1.19</td></tr>
@@ -408,7 +408,7 @@ svg .mFile { fill: color-mix(in srgb, var(--ok) 45%, var(--surface)); }
   <div class="means">
     <h3>What this means</h3>
     <p>For Jaccard estimation alone, MinHash gives no accuracy advantage. At large n and equal bytes, the two sketches are about equal. At small n, theta is better, because it is exact and smaller. Theta also gives cardinality, intersection and A-not-B, and MinHash does not. <span class="src">Research A</span></p>
-    <p><strong>Large sets.</strong> Neither sketch is smaller for the same accuracy. Theta at the same k uses about 1.4 times the MinHash bytes, and it has a smaller error to match. Theta at half k uses about 0.7 times the MinHash bytes, and its error is 1.13 to 1.21 times larger. <span class="src">PR #17</span></p>
+    <p><strong>Large sets.</strong> Neither sketch is smaller for the same accuracy. Theta at the same k uses about 1.4 times the MinHash bytes, and it has a smaller error to match. Theta at half k uses about 0.7 times the MinHash bytes, and its SD is 1.13 to 1.21 times the MinHash theory SD. <span class="src">PR #17</span></p>
     <p><strong>Small sets.</strong> MinHash pays its full size and its full error at every n. This region needs its own investigation. The table above shows where it ends: about 1.7k to 1.8k items against theta at half k.</p>
     <p><strong>The plan for small sets.</strong> ADR-0003 defers an exact mode to a separate later issue. That mode keeps the seeded 64-bit XXH64 hash of each distinct item, so it uses 8 bytes for each item, as theta does in exact mode. It computes the k slot values from that list when it needs them. Thus the slot values and the test vectors do not change, and J is exact when both sketches hold a hash list. MH-23 will reserve one flag bit in format version 1 for this form. ADR-0003 does not set the n at which a sketch changes from the list to slots. <span class="src">ADR-0003</span></p>
     <p class="judge">Judgement: a simple change point is n = k, where the list reaches the 8k bytes of the slots.</p>
