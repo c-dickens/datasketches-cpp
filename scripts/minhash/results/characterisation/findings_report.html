@@ -261,6 +261,36 @@ svg .mFile { fill: color-mix(in srgb, var(--ok) 45%, var(--surface)); }
     <li>Check each candidate with <code>jaccard()</code>. The index has no public function that returns a stored sketch, so the caller uses its own copy of each sketch. This is one reason why a program can keep each signature twice.</li>
   </ol>
   <p class="col">To find all the similar pairs instead, call <code>get_duplicate_clusters()</code> after step 1. It does the <code>jaccard()</code> checks itself. <span class="src">minhash_lsh.hpp</span></p>
+
+  <h3 id="bgMerge">Merging and comparing two collections</h3>
+  <p class="col">Two different things can be merged: sketches and indexes. The library can merge sketches. It cannot merge indexes.</p>
+  <div class="tbl"><table>
+    <caption>Four tasks, and the tool for each <span class="src">minhash_sketch.hpp</span> <span class="src">minhash_lsh.hpp</span></caption>
+    <thead><tr><th>Task</th><th>What to do</th><th>In the library today</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Similar pairs inside one collection of N sets</td><td>Add all N to one index, then call <code>get_duplicate_clusters()</code></td><td>Yes</td><td>N · b inserts, plus the candidate checks</td></tr>
+      <tr><td>Similar pairs between N sets and M sets</td><td>Add the M sets to one index, then query it with each of the N sets</td><td>Yes</td><td>(N + M) · b hash operations, plus one <code>jaccard()</code> call for each candidate pair</td></tr>
+      <tr><td>Similarity of two groups of sets, as wholes</td><td><code>merge()</code> the sketches of each group, then call <code>jaccard()</code> one time</td><td>Yes</td><td>One <code>merge()</code> for each set, and one compare</td></tr>
+      <tr><td>Join two indexes into one</td><td>An index merge</td><td>No</td><td>Not built</td></tr>
+    </tbody>
+  </table></div>
+  <p class="col"><strong>Merging sketches gives one larger set.</strong> <code>merge()</code> keeps the smaller value in each slot. The result is exactly the sketch of the union of the two sets. The two sketches must have the same k and seed, but they can come from different machines. <span class="src">minhash_sketch.hpp</span> Use it for one document in parts, or for a whole group of sets. The merged sketch answers "how similar are the two unions?". It does not tell which members of the two groups are similar.</p>
+  <p class="col"><strong>Merging indexes gives one larger collection.</strong> <code>minhash_lsh_index</code> has no merge function today. <span class="src">minhash_lsh.hpp</span> A band key depends only on the r slot values and on the seed plus the band number. <span class="src">minhash_lsh_impl.hpp</span> So two indexes with the same k, b and seed give the same key for the same band. <span class="judge">Judgement: a merge would join the two tables of each band, and join the id lists of equal keys. The ids must be unique across the two indexes.</span> No issue covers this for <code>minhash_lsh_index</code>. MH-26 covers a union for the planned Bloom-filter index. <span class="src">MH-26</span></p>
+  <p class="col"><strong>Comparing N sets against M sets.</strong> This needs no merge, and no N × M compares.</p>
+  <ol class="col">
+    <li>Add the M sets to one index: M · b inserts.</li>
+    <li>For each of the N sets, call <code>query_candidates()</code>: N · b lookups. Each call returns each candidate one time.</li>
+    <li>Check each candidate with <code>jaccard()</code>, against your own copy of the M sketches.</li>
+  </ol>
+  <p class="col">Simple arithmetic: with N = M = 100,000 and b = 32, that is 6.4 × 10⁶ hash operations, against 10¹⁰ compares for all N × M pairs. As inside one collection, this saves work only when most pairs are dissimilar. You can also add both collections to one index and call <code>get_duplicate_clusters()</code>. But that also links pairs inside each collection, and those links can join clusters across the two collections.</p>
+  <div class="means">
+    <h3>How the parts fit at large scale</h3>
+    <p class="judge">Judgement, from the functions above. None of this is measured.</p>
+    <p><strong>Sketch once.</strong> Sketch each set one time, with one k and one seed for all sets. Merge the sketches of the parts of a set. Store the sketches, because every later step needs only them.</p>
+    <p><strong>Compare two collections.</strong> Index one collection and query it with the other.</p>
+    <p><strong>Compare groups as wholes.</strong> Merge each group into one sketch, and compare those sketches. With many groups, put the group sketches in an index too.</p>
+    <p><strong>Split the work across machines.</strong> Split by band: each machine holds some of the b tables, and the candidates are the union of what each machine finds. <code>minhash_lsh_index</code> always holds all b tables, so this split needs your own tables, built with the public <code>band_keys()</code>. A split by set needs the index merge, which does not exist yet.</p>
+  </div>
 </section>
 
 <section id="answer">
@@ -605,7 +635,7 @@ svg .mFile { fill: color-mix(in srgb, var(--ok) 45%, var(--surface)); }
     <dt>README</dt><dd><a href="https://github.com/c-dickens/datasketches-cpp/blob/minhash/main/scripts/minhash/README.md">scripts/minhash/README.md</a>, section "Characterisation".</dd>
     <dt>ADR-0003</dt><dd><a href="https://github.com/c-dickens/datasketches-cpp/blob/minhash/main/docs/adr/0003-keep-k-hash-slots-and-defer-exact-mode.md">docs/adr/0003-keep-k-hash-slots-and-defer-exact-mode.md</a>. Accepted 22 Nov 2026.</dd>
     <dt>d5ae896</dt><dd><a href="https://github.com/c-dickens/datasketches-cpp/commit/d5ae896">c-dickens/datasketches-cpp@d5ae896</a>, "Add MinHash sketch serialization", 20 Aug 2026, on branch <code>feat/minhash-serde</code>. Not on <code>minhash/main</code>. The layout is in <code>minhash/include/minhash_sketch.hpp</code>.</dd>
-    <dt>MH-23, MH-27</dt><dd>Linear issues <a href="https://linear.app/cd-tech/issue/CD-403">CD-403</a> (sketch serialisation, deferred) and <a href="https://linear.app/cd-tech/issue/CD-407">CD-407</a> (serialisation of <code>minhash_lsh_bloom</code>, backlog).</dd>
+    <dt>MH-23, MH-26, MH-27</dt><dd>Linear issues <a href="https://linear.app/cd-tech/issue/CD-406">CD-406</a> (union of <code>minhash_lsh_bloom</code>, backlog), <a href="https://linear.app/cd-tech/issue/CD-403">CD-403</a> (sketch serialisation, deferred) and <a href="https://linear.app/cd-tech/issue/CD-407">CD-407</a> (serialisation of <code>minhash_lsh_bloom</code>, backlog).</dd>
     <dt>lsh_20news.md, #25</dt><dd><a href="https://github.com/c-dickens/datasketches-cpp/blob/minhash/main/scripts/minhash/results/lsh_20news.md">scripts/minhash/results/lsh_20news.md</a>, the MH-14 LSH demo on 20 Newsgroups, from <a href="https://github.com/c-dickens/datasketches-cpp/pull/25">c-dickens/datasketches-cpp#25</a>. Merged 22 Nov 2026, after the commit that this report reads.</dd>
     <dt>Research A</dt><dd><a href="https://linear.app/cd-tech/document/research-when-to-use-minhash-rather-than-theta-e16ed49a22df">Research: when to use MinHash rather than theta</a> (Linear, 20 Nov 2026, updated 22 Nov).</dd>
     <dt>Research B</dt><dd><a href="https://linear.app/cd-tech/document/research-what-minhash-lsh-enables-with-a-benchmark-5ec48e0ac34d">Research: what MinHash + LSH enables, with a benchmark</a> (Linear, 21 Nov 2026). Linear files it under the project "Apache DataSketches", not "MinHash + LSH".</dd>
