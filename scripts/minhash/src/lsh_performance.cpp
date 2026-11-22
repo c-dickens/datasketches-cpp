@@ -30,7 +30,6 @@
 #include <iostream>
 #include <map>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -102,7 +101,7 @@ bool same_group(const std::vector<lsh_document>& docs, uint64_t a, uint64_t b) {
 
 void write_quality(std::ostream& out, const std::string& method, unsigned b, unsigned r, uint64_t n,
                    uint64_t true_pairs, const pair_counts& pairs, uint64_t candidate_pairs,
-                   const std::string& largest_bucket, double bytes_per_doc) {
+                   const std::string& band_collisions, const std::string& largest_bucket, double bytes_per_doc) {
   out << method << "\t" << b << "\t" << r << "\t" << n << "\t" << true_pairs << "\t" << pairs.reported << "\t"
       << pairs.true_positives << "\t"
       << static_cast<double>(pairs.true_positives) / static_cast<double>(true_pairs) << "\t";
@@ -111,10 +110,11 @@ void write_quality(std::ostream& out, const std::string& method, unsigned b, uns
   } else {
     out << static_cast<double>(pairs.true_positives) / static_cast<double>(pairs.reported);
   }
-  out << "\t" << candidate_pairs << "\t" << largest_bucket << "\t" << bytes_per_doc << "\n";
+  out << "\t" << candidate_pairs << "\t" << band_collisions << "\t" << largest_bucket << "\t" << bytes_per_doc << "\n";
 }
 
-// The pairs in the clusters of the index, and those in one planted group.
+// The pairs in the clusters of the index, and those in one planted group. Clusters are connected
+// components, so a pair whose estimate is below t is reported when other members link it.
 pair_counts cluster_pairs(const index_type::vector_of_clusters& clusters, const std::vector<lsh_document>& docs) {
   pair_counts counts;
   for (const auto& cluster : clusters) {
@@ -133,25 +133,15 @@ pair_counts cluster_pairs(const index_type::vector_of_clusters& clusters, const 
   return counts;
 }
 
-// CandidatePairs and LargestBucket of the bands of all sketches. The map is only counted, so
-// its iteration order does not change the result.
-std::pair<uint64_t, uint64_t> bucket_stats(const std::vector<sketch_type>& sketches, uint16_t b) {
-  std::vector<std::unordered_map<uint64_t, uint64_t>> buckets(b);
+// CandidatePairs, BandCollisions and LargestBucket of the bands of all sketches.
+lsh_bucket_counts bucket_stats(const std::vector<sketch_type>& sketches, uint16_t b) {
+  std::vector<uint64_t> keys;
+  keys.reserve(sketches.size() * b);
   for (const auto& s : sketches) {
-    const auto keys = index_type::band_keys(s, b);
-    for (uint16_t band = 0; band < b; ++band) {
-      ++buckets[band][keys[band]];
-    }
+    const auto k = index_type::band_keys(s, b);
+    keys.insert(keys.end(), k.begin(), k.end());
   }
-  uint64_t candidate_pairs = 0;
-  uint64_t largest = 0;
-  for (const auto& band : buckets) {
-    for (const auto& bucket : band) {
-      candidate_pairs += bucket.second * (bucket.second - 1) / 2;
-      largest = std::max(largest, bucket.second);
-    }
-  }
-  return {candidate_pairs, largest};
+  return count_lsh_buckets(keys, b);
 }
 
 // All pairs i < j with jaccard(i, j) >= t, and those in one planted group. The group check runs
@@ -253,7 +243,8 @@ void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out,
       if (first) {
         const auto stats = bucket_stats(sketches, br.first);
         write_quality(quality_out, "minhash_lsh", br.first, br.second, n, true_pairs, cluster_pairs(clusters, docs),
-                      stats.first, std::to_string(stats.second),
+                      stats.candidate_pairs, std::to_string(stats.band_collisions),
+                      std::to_string(stats.largest_bucket),
                       static_cast<double>(index_bytes) / static_cast<double>(n));
       }
     }
@@ -266,7 +257,7 @@ void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out,
       sink += static_cast<double>(pairs.reported);
       if (first) {
         write_quality(quality_out, "minhash_brute", 0, 0, n, true_pairs, pairs,
-                      n * (n - 1) / 2, "NA", 8.0 * K);
+                      n * (n - 1) / 2, "NA", "NA", 8.0 * K);
       }
     }
     sketches.clear();
@@ -298,7 +289,7 @@ void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out,
           bytes += static_cast<double>(s.get_serialized_size_bytes());
         }
         write_quality(quality_out, "theta_brute", 0, 0, n, true_pairs, pairs,
-                      n * (n - 1) / 2, "NA", bytes / static_cast<double>(n));
+                      n * (n - 1) / 2, "NA", "NA", bytes / static_cast<double>(n));
       }
     }
   }
@@ -330,7 +321,7 @@ void lsh_performance(std::ostream& time_out, std::ostream& quality_out, bool smo
   write_header(quality_out, profile, g);
   time_out << "Method\tB\tR\tN\tPhase\tRepeats\tMedianSec\tMinSec\n";
   quality_out << "Method\tB\tR\tN\tTruePairs\tReportedPairs\tTruePositives\tRecall\tPrecision\tCandidatePairs"
-                 "\tLargestBucket\tBytesPerDoc\n";
+                 "\tBandCollisions\tLargestBucket\tBytesPerDoc\n";
 
   double sink = 0.0;
   const auto start = steady::now();

@@ -24,6 +24,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 #include "xxhash64.h"
@@ -220,6 +221,34 @@ std::vector<uint64_t> smallest_hash_ids(std::vector<uint64_t> ids, std::size_t c
   }
   std::sort(ids.begin(), ids.end());
   return ids;
+}
+
+lsh_bucket_counts count_lsh_buckets(const std::vector<uint64_t>& keys, std::size_t b) {
+  lsh_bucket_counts counts{0, 0, 0};
+  const std::size_t n = keys.size() / b;
+  // shortcut: keeps every colliding (pair, band); fine while buckets are small, as in the
+  // planted data. Count the pairs per document with query_candidates() if buckets get large.
+  std::vector<std::pair<uint64_t, uint64_t>> pairs;
+  for (std::size_t band = 0; band < b; ++band) {
+    // The map gives only counts and pairs that are sorted below, so its order does not change the result.
+    std::unordered_map<uint64_t, std::vector<uint64_t>> buckets;
+    for (std::size_t d = 0; d < n; ++d) {
+      buckets[keys[d * b + band]].push_back(d);
+    }
+    for (const auto& bucket : buckets) {
+      const std::vector<uint64_t>& ids = bucket.second;  // ascending, so each pair is (smaller, larger)
+      counts.band_collisions += ids.size() * (ids.size() - 1) / 2;
+      counts.largest_bucket = std::max<uint64_t>(counts.largest_bucket, ids.size());
+      for (std::size_t i = 0; i < ids.size(); ++i) {
+        for (std::size_t j = i + 1; j < ids.size(); ++j) {
+          pairs.emplace_back(ids[i], ids[j]);
+        }
+      }
+    }
+  }
+  std::sort(pairs.begin(), pairs.end());
+  counts.candidate_pairs = static_cast<uint64_t>(std::unique(pairs.begin(), pairs.end()) - pairs.begin());
+  return counts;
 }
 
 }  // namespace characterise

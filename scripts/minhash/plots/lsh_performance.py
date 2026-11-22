@@ -261,6 +261,12 @@ def _(BRUTE, LICENCE, brute_model, label, lsh_totals, mo, phase, results_dir, ru
             "",
             "## Recall and precision at the largest N of each method",
             "",
+            "The reported pairs of `minhash_lsh` are all the pairs in one cluster. Clusters are connected"
+            " components, so a pair whose estimate is below t is reported when other members link it. The"
+            " brute-force methods report only the pairs with `jaccard()` ≥ t. So the `minhash_lsh` recall is"
+            " not the pair-level rate. The candidate pairs are distinct: a pair that shares several buckets"
+            " counts once (the `BandCollisions` column of the TSV counts it once for each band).",
+            "",
             "| method | N | true pairs | reported pairs | recall | precision | candidate pairs | bytes per document |",
             "|---|---|---|---|---|---|---|---|",
         ]

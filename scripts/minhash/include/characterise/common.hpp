@@ -195,6 +195,17 @@ void lsh_document_items(const std::vector<lsh_document>& docs, uint64_t d, F f) 
 /// Ties of the hash go to the smaller id. If count >= ids.size(), returns all ids, sorted.
 std::vector<uint64_t> smallest_hash_ids(std::vector<uint64_t> ids, std::size_t count, uint64_t seed);
 
+/// The bucket counts of the LSH bands of n documents.
+struct lsh_bucket_counts {
+  uint64_t candidate_pairs;  // distinct pairs that share at least one bucket
+  uint64_t band_collisions;  // sum over bands and buckets of s (s - 1) / 2: once for each band a pair shares
+  uint64_t largest_bucket;   // the largest s
+};
+
+/// The bucket counts of `keys`, which holds the b band keys of each document in turn
+/// (document d at [d b, (d + 1) b)). b must be at least 1.
+lsh_bucket_counts count_lsh_buckets(const std::vector<uint64_t>& keys, std::size_t b);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_COMMON_HPP_

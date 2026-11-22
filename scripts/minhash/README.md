@@ -177,8 +177,8 @@ are committed.
 | `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | about 1 s |
 | `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 30 s (estimate) |
 | `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | less than 1 s |
-| `minhash-lsh-performance` | The time, memory, recall and precision of finding all pairs with J ≥ 0.5 among N documents: MinHash with the LSH index ((b, r) = (32, 4) and (16, 8), N = 2^8 to 2^18), MinHash `jaccard()` on all pairs (N ≤ 2^14) and theta `jaccard()` on all pairs (N ≤ 2^12), k = 128 | about 14 min (estimate, Intel Xeon 2.3 GHz) |
-| `minhash-lsh-performance-smoke` | The same, with N ≤ 2^12 for LSH, 2^11 and 2^10 for brute force, 100 queries for each class and 1 repeat | 10 s (Intel Xeon 2.3 GHz) |
+| `minhash-lsh-performance` | The time, memory, recall and precision of finding all pairs with J ≥ 0.5 among N documents: MinHash with the LSH index ((b, r) = (32, 4) and (16, 8), N = 2^8 to 2^18), MinHash `jaccard()` on all pairs (N ≤ 2^14) and theta `jaccard()` on all pairs (N ≤ 2^12), k = 128 | about 8.5 min |
+| `minhash-lsh-performance-smoke` | The same, with N ≤ 2^12 for LSH, 2^11 and 2^10 for brute force, 100 queries for each class and 1 repeat | about 6 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -242,14 +242,23 @@ same tag as the speed profiles:
 - `lsh_performance_time_<tag>.tsv`: the median and minimum time of each
   (method, b, r, N, phase).
 - `lsh_performance_quality_<tag>.tsv`: the true, reported and true-positive
-  pairs, the recall and precision, the LSH candidate pairs and largest bucket,
-  and the bytes per document, for each (method, b, r, N).
+  pairs, the recall and precision, the LSH candidate pairs, band collisions and
+  largest bucket, and the bytes per document, for each (method, b, r, N).
+  `CandidatePairs` counts each pair that shares at least one bucket once.
+  `BandCollisions` counts a pair once for each band that it shares. It is the
+  work that the buckets give. For brute force, `CandidatePairs` is
+  N (N − 1) / 2.
 - `lsh_performance_time_<tag>.svg`, `lsh_performance_memory_<tag>.svg` and
   `lsh_performance_quality_<tag>.svg`: the plots. The time plot draws the fitted
   c N² of each brute-force method, dashed, up to N = 2^18.
 - `lsh_performance_<tag>.md`: the crossover N and the speed-up of LSH over each
   brute-force method, the time of each phase, the ns per query, and the recall
   and precision.
+
+The reported pairs of `minhash_lsh` are all the pairs in one cluster. Clusters
+are connected components, so a pair whose estimate is below t is reported when
+other members link it. The brute-force methods report only the pairs with
+`jaccard()` ≥ t. So the `minhash_lsh` recall is not the pair-level rate.
 
 The full speed and LSH performance results are not committed yet. MH-21 runs
 them on a quiet machine.

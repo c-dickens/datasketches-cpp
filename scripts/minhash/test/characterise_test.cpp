@@ -506,3 +506,18 @@ TEST_CASE("smallest_hash_ids is deterministic, sorted, and gives all ids when co
   REQUIRE(all.back() == 999);
   REQUIRE(characterise::smallest_hash_ids(ids, 5000, 1) == all);
 }
+
+TEST_CASE("count_lsh_buckets counts a pair once, however many bands it shares", "[characterise]") {
+  // b = 2. Documents 0 and 1 share both bands, and document 2 shares band 0 with both.
+  const std::vector<uint64_t> keys{1, 10, 1, 10, 1, 20};
+  const auto counts = characterise::count_lsh_buckets(keys, 2);
+  REQUIRE(counts.candidate_pairs == 3);  // (0, 1), (0, 2), (1, 2)
+  REQUIRE(counts.band_collisions == 4);  // 3 in band 0, 1 in band 1
+  REQUIRE(counts.largest_bucket == 3);
+
+  // Two identical documents give 1 candidate pair and b band collisions.
+  const auto same = characterise::count_lsh_buckets({5, 6, 7, 8, 5, 6, 7, 8}, 4);
+  REQUIRE(same.candidate_pairs == 1);
+  REQUIRE(same.band_collisions == 4);
+  REQUIRE(same.largest_bucket == 2);
+}
