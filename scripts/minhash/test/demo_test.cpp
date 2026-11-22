@@ -189,3 +189,87 @@ TEST_CASE("bins_table has a header, a separator and one row per bin", "[demo]") 
                      "| PASS | PASS | PASS | PASS |") != std::string::npos);
   REQUIRE(table.find("| [0.0, 0.1) | 0 | - | - | - | - | - | - | not checked |") != std::string::npos);
 }
+
+TEST_CASE("candidate_probability is 1 - (1 - J^r)^b", "[demo]") {
+  // 1 - (1 - 0.5^4)^32 = 1 - (15/16)^32 = 0.873211
+  REQUIRE(demo::candidate_probability(0.5, 4, 32) == Approx(0.873211).margin(1e-6));
+  REQUIRE(demo::candidate_probability(0.0, 4, 32) == 0.0);
+  REQUIRE(demo::candidate_probability(1.0, 4, 32) == 1.0);
+}
+
+TEST_CASE("is_candidate is true when the key lists are equal in one band", "[demo]") {
+  REQUIRE(demo::is_candidate({1, 2, 3}, {9, 2, 8}));
+  REQUIRE(!demo::is_candidate({1, 2, 3}, {3, 1, 2}));
+  REQUIRE_THROWS_AS(demo::is_candidate({1, 2}, {1, 2, 3}), std::invalid_argument);
+}
+
+TEST_CASE("scurve_counter checks the candidate count against the 99% interval", "[demo]") {
+  // 1,000 pairs at J = 0.5, r = 4, b = 32: p = 0.873211.
+  // expected = 1000 * 0.873211 = 873.21.
+  // SD = sqrt(1000 * 0.873211 * 0.126789) = sqrt(110.71) = 10.52, and 2.5758 * 10.52 = 27.10.
+  // So the interval is [846.11, 900.31]: 873 candidates PASS, and 800 candidates FAIL.
+  const auto bin_with = [](std::size_t pairs, std::size_t candidates) {
+    demo::scurve_counter counter(4, 32);
+    for (std::size_t i = 0; i < pairs; ++i) {
+      counter.add(0.5, i < candidates);
+    }
+    const auto bins = counter.bins();
+    REQUIRE(bins.size() == demo::NUM_BINS);
+    return bins[5];
+  };
+  const auto good = bin_with(1000, 873);
+  REQUIRE(good.bin == 5);
+  REQUIRE(good.pairs == 1000);
+  REQUIRE(good.candidates == 873);
+  REQUIRE(good.expected == Approx(873.211).margin(1e-3));
+  REQUIRE(good.sd == Approx(std::sqrt(1000 * 0.873211 * 0.126789)).margin(1e-4));
+  REQUIRE(good.sd == Approx(10.52).margin(0.01));
+  REQUIRE(good.checked);
+  REQUIRE(good.pass);
+
+  const auto bad = bin_with(1000, 800);
+  REQUIRE(bad.checked);
+  REQUIRE(!bad.pass);
+
+  REQUIRE(!bin_with(999, 873).checked);  // fewer than MIN_BIN_PAIRS pairs
+
+  const auto table = demo::scurve_table({good});
+  REQUIRE(table.find("| [0.5, 0.6) | 1000 | 873 | 873.21 | 10.52 | 0.873000 | 0.873211 | PASS |") !=
+          std::string::npos);
+  REQUIRE(demo::scurve_table({bin_with(999, 873)}).find("not checked") != std::string::npos);
+}
+
+TEST_CASE("pair_counts counts similar, verified and both", "[demo]") {
+  demo::pair_counts counts;
+  counts.add(true, true);
+  counts.add(true, false);
+  counts.add(false, true);
+  REQUIRE(counts.similar == 2);
+  REQUIRE(counts.verified == 2);
+  REQUIRE(counts.both == 1);
+}
+
+TEST_CASE("largest_buckets orders by size, then band, then key", "[demo]") {
+  // 2 bands. Item 2 is not indexed.
+  // band 0: key 5 -> {0, 1, 3}; band 1: key 9 -> {0, 3}, key 4 -> {1}.
+  const std::vector<std::vector<uint64_t>> keys{{5, 9}, {5, 4}, {}, {5, 9}};
+  const auto buckets = demo::largest_buckets(keys, 10);
+  REQUIRE(buckets.size() == 3);
+  REQUIRE(buckets[0].band == 0);
+  REQUIRE(buckets[0].key == 5);
+  REQUIRE(buckets[0].items == std::vector<std::size_t>{0, 1, 3});
+  REQUIRE(buckets[1].band == 1);
+  REQUIRE(buckets[1].key == 9);
+  REQUIRE(buckets[1].items == std::vector<std::size_t>{0, 3});
+  REQUIRE(buckets[2].band == 1);
+  REQUIRE(buckets[2].key == 4);
+  REQUIRE(buckets[2].items == std::vector<std::size_t>{1});
+
+  // equal sizes: band 0 before band 1, then the smaller key first
+  const std::vector<std::vector<uint64_t>> ties{{8, 3}, {2, 6}};
+  const auto tied = demo::largest_buckets(ties, 3);
+  REQUIRE(tied.size() == 3);
+  REQUIRE((tied[0].band == 0 && tied[0].key == 2));
+  REQUIRE((tied[1].band == 0 && tied[1].key == 8));
+  REQUIRE((tied[2].band == 1 && tied[2].key == 3));
+}

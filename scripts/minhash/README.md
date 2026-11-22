@@ -128,6 +128,40 @@ at least 1,000 pairs is checked:
 The merge of the 4 piece sketches must equal the sketch of the whole set, for
 every post and every k.
 
+## LSH correctness on 20 Newsgroups
+
+```bash
+build/lsh_20news data/20_newsgroups results/lsh_20news.md
+```
+
+`./run_demos.sh` runs this demo. It indexes every post with a non-empty
+shingle set at k = 128, with 32 bands of 4 slots and a threshold of 0.5. It
+writes `results/lsh_20news.md`, which is committed, with the last line
+`Overall: PASS` or `Overall: FAIL`. The section "Time" changes from run to run.
+
+The pairs are those of the MinHash demo. Pairs with a post that has no
+shingles are left out, because such a post cannot be indexed. A pair is a
+candidate when its band keys are equal in at least one band. It is verified
+when it is a candidate and its estimated J is at least 0.5.
+
+**S-curve check.** In each J bin of width 0.1 with at least 1,000 pairs, the
+candidate count must be within Σ p_i ± 2.5758 · √Σ p_i(1 − p_i), with
+p_i = 1 − (1 − J_i⁴)³². This is the normal approximation of the 99% interval
+of a sum of Bernoulli(p_i) values. A bin with fewer pairs is reported as
+"not checked".
+
+**Cross-post check.** Each pair of indexed posts that share a `Message-ID`
+must be in one cluster of `get_duplicate_clusters()`.
+
+**Report.** Recall and precision of the verified pairs against exact J ≥ 0.5,
+and the 10 largest buckets (one bucket is one band key in one band).
+
+**Time.** The LSH time covers sketching, `add` and `get_duplicate_clusters()`
+over all N posts. The exact time T_sample covers `news20::jaccard` over all
+pairs of the n = 2,000 sampled posts. It is scaled to all posts by the pair
+count: T_all = T_sample · N(N − 1) / (n(n − 1)), about 100 × T_sample. Neither
+time covers loading or shingling.
+
 ## Band-key test vectors
 
 `vectors/band_keys.py` computes the 15 band-key test vectors of

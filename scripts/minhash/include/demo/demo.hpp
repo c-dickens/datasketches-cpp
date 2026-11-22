@@ -98,6 +98,74 @@ bool bin_passes(const bin_summary& bin);
 /// or "not checked" for each criterion.
 std::string bins_table(const std::vector<bin_summary>& bins);
 
+// LSH demo (MH-14). MH-15 uses these names too.
+
+constexpr uint16_t LSH_K = 128;
+constexpr uint16_t LSH_BANDS = 32;
+constexpr unsigned LSH_ROWS = 4;           // LSH_K / LSH_BANDS
+constexpr double LSH_THRESHOLD = 0.5;
+constexpr double Z_99 = 2.5758;            // two-sided 99% normal quantile
+constexpr std::size_t LARGEST_BUCKETS = 10;
+constexpr std::size_t BUCKET_EXAMPLES = 3;
+
+/// 1 - (1 - j^rows)^bands.
+double candidate_probability(double j, unsigned rows, unsigned bands);
+
+/// True when the two key lists are equal in at least one position (band).
+/// Throws std::invalid_argument if the sizes differ.
+bool is_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b);
+
+struct scurve_bin {
+  std::size_t bin;
+  std::size_t pairs;
+  std::size_t candidates;
+  double expected;  // sum of p_i, with p_i = candidate_probability(J_i, rows, bands)
+  double sd;        // sqrt(sum of p_i (1 - p_i))
+  bool checked;     // pairs >= MIN_BIN_PAIRS
+  bool pass;        // |candidates - expected| <= Z_99 * sd
+};
+
+/// Counts the S-curve check one pair at a time, so that MH-15 can stream millions of pairs.
+class scurve_counter {
+public:
+  scurve_counter(unsigned rows, unsigned bands);
+  void add(double exact, bool candidate);
+  std::vector<scurve_bin> bins() const;  // NUM_BINS bins, by jaccard_bin(exact)
+
+private:
+  struct sums {
+    std::size_t pairs = 0;
+    std::size_t candidates = 0;
+    double expected = 0;
+    double variance = 0;
+  };
+  unsigned rows_;
+  unsigned bands_;
+  std::array<sums, NUM_BINS> sums_{};
+};
+
+/// A Markdown table with one row for each bin, and PASS, FAIL or "not checked".
+std::string scurve_table(const std::vector<scurve_bin>& bins);
+
+/// Counts for recall and precision. recall = both / similar, precision = both / verified.
+struct pair_counts {
+  std::size_t similar = 0;   // exact J >= LSH_THRESHOLD
+  std::size_t verified = 0;  // candidate and estimated J >= LSH_THRESHOLD
+  std::size_t both = 0;
+  void add(bool is_similar, bool is_verified);
+};
+
+/// One bucket: the items that share one band key in one band.
+struct bucket {
+  uint16_t band;
+  uint64_t key;
+  std::vector<std::size_t> items;  // ascending
+};
+
+/// The `count` largest buckets: by size (descending), then band, then key.
+/// keys_per_item[i] is band_keys of item i. An empty list means that item i is not indexed.
+std::vector<bucket> largest_buckets(const std::vector<std::vector<uint64_t>>& keys_per_item, std::size_t count);
+
 }  // namespace demo
 
 #endif  // DEMO_DEMO_HPP_

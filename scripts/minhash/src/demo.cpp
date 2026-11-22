@@ -201,4 +201,106 @@ std::string bins_table(const std::vector<bin_summary>& bins) {
   return os.str();
 }
 
+double candidate_probability(double j, unsigned rows, unsigned bands) {
+  return 1.0 - std::pow(1.0 - std::pow(j, static_cast<double>(rows)), static_cast<double>(bands));
+}
+
+bool is_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b) {
+  if (keys_a.size() != keys_b.size()) {
+    throw std::invalid_argument("key lists differ in size: " + std::to_string(keys_a.size()) + " and " +
+                                std::to_string(keys_b.size()));
+  }
+  for (std::size_t i = 0; i < keys_a.size(); ++i) {
+    if (keys_a[i] == keys_b[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+scurve_counter::scurve_counter(unsigned rows, unsigned bands) : rows_(rows), bands_(bands) {}
+
+void scurve_counter::add(double exact, bool candidate) {
+  auto& s = sums_[jaccard_bin(exact)];
+  const double p = candidate_probability(exact, rows_, bands_);
+  ++s.pairs;
+  if (candidate) {
+    ++s.candidates;
+  }
+  s.expected += p;
+  s.variance += p * (1.0 - p);
+}
+
+std::vector<scurve_bin> scurve_counter::bins() const {
+  std::vector<scurve_bin> result;
+  result.reserve(NUM_BINS);
+  for (std::size_t bin = 0; bin < NUM_BINS; ++bin) {
+    const auto& s = sums_[bin];
+    scurve_bin out{};
+    out.bin = bin;
+    out.pairs = s.pairs;
+    out.candidates = s.candidates;
+    out.expected = s.expected;
+    out.sd = std::sqrt(s.variance);
+    out.checked = s.pairs >= MIN_BIN_PAIRS;
+    out.pass = std::fabs(static_cast<double>(s.candidates) - s.expected) <= Z_99 * out.sd;
+    result.push_back(out);
+  }
+  return result;
+}
+
+std::string scurve_table(const std::vector<scurve_bin>& bins) {
+  std::ostringstream os;
+  os << "| J bin | pairs | candidates | expected | SD | candidate rate | expected rate | check |\n";
+  os << "|---|---:|---:|---:|---:|---:|---:|---|\n";
+  for (const auto& b : bins) {
+    const double low = static_cast<double>(b.bin) / static_cast<double>(NUM_BINS);
+    const double high = static_cast<double>(b.bin + 1) / static_cast<double>(NUM_BINS);
+    // the last bin holds J = 1, so it is closed
+    os << "| [" << fixed(low, 1) << ", " << fixed(high, 1) << (b.bin + 1 == NUM_BINS ? "] | " : ") | ")
+       << b.pairs << " | " << b.candidates << " | " << fixed(b.expected, 2) << " | " << fixed(b.sd, 2) << " | ";
+    if (b.pairs == 0) {
+      os << "- | - | ";
+    } else {
+      const auto n = static_cast<double>(b.pairs);
+      os << fixed(static_cast<double>(b.candidates) / n, 6) << " | " << fixed(b.expected / n, 6) << " | ";
+    }
+    os << verdict(b.checked, b.pass) << " |\n";
+  }
+  return os.str();
+}
+
+void pair_counts::add(bool is_similar, bool is_verified) {
+  if (is_similar) {
+    ++similar;
+  }
+  if (is_verified) {
+    ++verified;
+  }
+  if (is_similar && is_verified) {
+    ++both;
+  }
+}
+
+std::vector<bucket> largest_buckets(const std::vector<std::vector<uint64_t>>& keys_per_item, std::size_t count) {
+  // std::map keeps (band, key) order, so ties break by band, then key
+  std::map<std::pair<uint16_t, uint64_t>, std::vector<std::size_t>> by_key;
+  for (std::size_t i = 0; i < keys_per_item.size(); ++i) {
+    const auto& keys = keys_per_item[i];
+    for (std::size_t band = 0; band < keys.size(); ++band) {
+      by_key[{static_cast<uint16_t>(band), keys[band]}].push_back(i);  // ascending, because i ascends
+    }
+  }
+  std::vector<bucket> all;
+  all.reserve(by_key.size());
+  for (auto& entry : by_key) {
+    all.push_back(bucket{entry.first.first, entry.first.second, std::move(entry.second)});
+  }
+  // stable: equal sizes keep the (band, key) order of the map
+  std::stable_sort(all.begin(), all.end(),
+                   [](const bucket& a, const bucket& b) { return a.items.size() > b.items.size(); });
+  all.resize(std::min(count, all.size()));
+  return all;
+}
+
 }  // namespace demo

@@ -37,3 +37,6 @@ build/news20_stats data/20_newsgroups
 echo "== 20 Newsgroups: MinHash correctness =="
 mkdir -p results
 build/minhash_20news data/20_newsgroups results/minhash_20news.md
+
+echo "== 20 Newsgroups: LSH correctness =="
+build/lsh_20news data/20_newsgroups results/lsh_20news.md
