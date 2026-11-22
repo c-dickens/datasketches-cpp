@@ -19,8 +19,12 @@
 
 // Runs one characterisation profile, and writes its TSV to stdout.
 // Usage: minhash_characterise <profile-name>
+// A profile with a second TSV (minhash-lsh-performance) writes it to the file that the
+// environment variable CHARACTERISE_QUALITY_OUT names.
 
+#include <cstdlib>
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <ostream>
 #include <string>
@@ -53,7 +57,11 @@ struct profile {
   const char* name;
   void (*run)(std::ostream& out, bool smoke);
   bool smoke;
+  // For a profile with a second TSV, in place of run.
+  void (*run_two)(std::ostream& out, std::ostream& second_out, bool smoke) = nullptr;
 };
+
+const char* const QUALITY_OUT_VARIABLE = "CHARACTERISE_QUALITY_OUT";
 
 // The registry. Each profile has a full version and a "-smoke" version.
 const profile PROFILES[] = {
@@ -69,6 +77,8 @@ const profile PROFILES[] = {
     {"minhash-update-speed-smoke", characterise::update_speed, true},
     {"minhash-call-speed", characterise::call_speed, false},
     {"minhash-call-speed-smoke", characterise::call_speed, true},
+    {"minhash-lsh-performance", nullptr, false, characterise::lsh_performance},
+    {"minhash-lsh-performance-smoke", nullptr, true, characterise::lsh_performance},
 };
 
 int usage(const char* program) {
@@ -88,9 +98,33 @@ int main(int argc, char** argv) {
   const std::string name = argv[1];
   for (const auto& p : PROFILES) {
     if (name == p.name) {
+      std::ofstream second_out;
+      if (p.run_two != nullptr) {
+        const char* path = std::getenv(QUALITY_OUT_VARIABLE);  // NOLINT(concurrency-mt-unsafe): single-threaded
+        if (path == nullptr || path[0] == '\0') {
+          std::cerr << "error: set " << QUALITY_OUT_VARIABLE << " to the file for the quality TSV of " << p.name
+                    << "\n";
+          return 2;
+        }
+        second_out.open(path);
+        if (!second_out) {
+          std::cerr << "error: cannot open " << path << "\n";
+          return 1;
+        }
+      }
       try {
         std::cout << LICENCE_HEADER;
-        p.run(std::cout, p.smoke);
+        if (p.run_two != nullptr) {
+          second_out << LICENCE_HEADER;
+          p.run_two(std::cout, second_out, p.smoke);
+          second_out.flush();
+          if (!second_out) {
+            std::cerr << "error: cannot write the quality TSV\n";
+            return 1;
+          }
+        } else {
+          p.run(std::cout, p.smoke);
+        }
         std::cout.flush();
         if (!std::cout) {
           std::cerr << "error: cannot write the TSV to stdout\n";

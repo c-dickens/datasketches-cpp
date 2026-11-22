@@ -49,6 +49,11 @@ void update_speed(std::ostream& out, bool smoke);
 /// The time of construction, merge and jaccard of MinHash and theta per call, against k (MH-18).
 void call_speed(std::ostream& out, bool smoke);
 
+/// The time, memory, recall and precision of finding all pairs with J >= 0.5 among N
+/// documents, with MinHash and the LSH index, MinHash on all pairs, and theta on all pairs
+/// (MH-20). The time TSV goes to `time_out`, and the quality TSV to `quality_out`.
+void lsh_performance(std::ostream& time_out, std::ostream& quality_out, bool smoke);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_PROFILES_HPP_

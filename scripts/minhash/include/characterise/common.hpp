@@ -28,6 +28,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -96,6 +98,170 @@ std::string cpu_model();
 /// 'x' up to the length.
 std::vector<uint64_t> u64_items(std::size_t n);
 std::vector<std::string> string_items(std::size_t n, std::size_t length);
+
+/// The bytes that all counting_allocator instances hold now (allocated minus deallocated).
+int64_t counted_bytes();
+
+namespace detail {
+// The counter of counting_allocator. The profiles are single-threaded, so it is a plain integer.
+inline int64_t counted_bytes_total = 0;
+}  // namespace detail
+
+/// A std::allocator that adds the size of each allocation to one global counter, and
+/// subtracts it on deallocation. It has a rebind, and all instances compare equal.
+template<typename T>
+class counting_allocator {
+ public:
+  using value_type = T;
+  template<typename U>
+  struct rebind {
+    using other = counting_allocator<U>;
+  };
+
+  counting_allocator() = default;
+  template<typename U>
+  counting_allocator(const counting_allocator<U>& /*other*/) noexcept {}  // NOLINT(google-explicit-constructor): allocators convert implicitly on rebind
+
+  T* allocate(std::size_t n) {
+    T* p = std::allocator<T>().allocate(n);
+    detail::counted_bytes_total += static_cast<int64_t>(n * sizeof(T));
+    return p;
+  }
+
+  void deallocate(T* p, std::size_t n) noexcept {
+    detail::counted_bytes_total -= static_cast<int64_t>(n * sizeof(T));
+    std::allocator<T>().deallocate(p, n);
+  }
+
+  template<typename U>
+  bool operator==(const counting_allocator<U>& /*other*/) const noexcept { return true; }
+  template<typename U>
+  bool operator!=(const counting_allocator<U>& /*other*/) const noexcept { return false; }
+};
+
+/// One planted or unrelated document of the LSH performance data.
+struct lsh_document {
+  uint64_t id;
+  int64_t group;   // -1 for an unrelated document
+  double true_j;   // the exact J with the other members of its group; 0 for unrelated
+};
+
+/// The items of one document: 1000.
+constexpr uint64_t LSH_DOCUMENT_ITEMS = 1000;
+
+/// The layout of n documents. The first n / 10 ids are the planted part, in groups in id order.
+/// Group g has h = XXHash64::hash(&g, 8, 2), size 2 + (h >> 32) mod 4 (cut to the planted ids
+/// that are left), and target J* = 0.6 + 0.35 (h mod 1000) / 999. If fewer than 2 planted ids
+/// are left for the last group, they are unrelated documents. true_j is the exact J of the
+/// items, (1000 - 2 delta) / (1000 + 2 delta), with delta = lsh_group_delta(g). Deterministic.
+std::vector<lsh_document> lsh_documents(uint64_t n);
+
+/// delta = round(1000 (1 - J*) / (2 (1 + J*))) of group g: the items that each member drops
+/// from the base set, and the fresh items that it adds.
+uint64_t lsh_group_delta(int64_t group);
+
+/// Calls f(item) for each of the 1000 items of document d of the layout.
+/// Unrelated document d: [d 2^11, d 2^11 + 1000). Member m of the group with first id f:
+/// [f 2^11, f 2^11 + 1000) without [f 2^11 + m delta, f 2^11 + (m + 1) delta), and the fresh
+/// items [2^40 + d 2^11, 2^40 + d 2^11 + delta).
+template<typename F>
+void lsh_document_items(const std::vector<lsh_document>& docs, uint64_t d, F f) {
+  constexpr uint64_t SPACING = 1ULL << 11;
+  constexpr uint64_t FRESH = 1ULL << 40;
+  const int64_t group = docs[d].group;
+  if (group < 0) {
+    for (uint64_t i = 0; i < LSH_DOCUMENT_ITEMS; ++i) {
+      f(d * SPACING + i);
+    }
+    return;
+  }
+  uint64_t first = d;
+  while (first > 0 && docs[first - 1].group == group) {
+    --first;
+  }
+  const uint64_t m = d - first;
+  const uint64_t delta = lsh_group_delta(group);
+  const uint64_t base = first * SPACING;
+  for (uint64_t i = 0; i < LSH_DOCUMENT_ITEMS; ++i) {
+    if (i < m * delta || i >= (m + 1) * delta) {
+      f(base + i);
+    }
+  }
+  for (uint64_t i = 0; i < delta; ++i) {
+    f(FRESH + d * SPACING + i);
+  }
+}
+
+/// The `count` ids with the smallest XXHash64::hash(&id, 8, seed), in ascending id order.
+/// Ties of the hash go to the smaller id. If count >= ids.size(), returns all ids, sorted.
+std::vector<uint64_t> smallest_hash_ids(std::vector<uint64_t> ids, std::size_t count, uint64_t seed);
+
+/// The bucket counts of the LSH bands of n documents.
+struct lsh_bucket_counts {
+  uint64_t candidate_pairs;  // distinct pairs that share at least one bucket
+  uint64_t band_collisions;  // sum over bands and buckets of s (s - 1) / 2: once for each band a pair shares
+  uint64_t largest_bucket;   // the largest s
+};
+
+/// The bucket counts of `keys`, which holds the b band keys of each document in turn
+/// (document d at [d b, (d + 1) b)). b must be at least 1.
+lsh_bucket_counts count_lsh_buckets(const std::vector<uint64_t>& keys, std::size_t b);
+
+/// The reported pairs of one method, and those in one planted group.
+struct pair_counts {
+  uint64_t reported = 0;
+  uint64_t true_positives = 0;
+};
+
+/// The true pairs of the layout: the sum over planted groups of size (size - 1) / 2.
+uint64_t lsh_true_pairs(const std::vector<lsh_document>& docs);
+
+/// The pairs in the clusters, and those in one planted group. Clusters are connected
+/// components, so a pair whose estimate is below t is reported when other members link it.
+template<typename Clusters>
+pair_counts cluster_pairs(const Clusters& clusters, const std::vector<lsh_document>& docs) {
+  pair_counts counts;
+  for (const auto& cluster : clusters) {
+    const uint64_t c = cluster.size();
+    counts.reported += c * (c - 1) / 2;
+    std::map<int64_t, uint64_t> per_group;
+    for (const uint64_t id : cluster) {
+      if (docs[id].group >= 0) {
+        ++per_group[docs[id].group];
+      }
+    }
+    for (const auto& g : per_group) {
+      counts.true_positives += g.second * (g.second - 1) / 2;
+    }
+  }
+  return counts;
+}
+
+/// All pairs i < j with jaccard(i, j) >= threshold, and those in one planted group. The group
+/// check runs only for the pairs that pass, so it adds almost nothing to the timed work, and the
+/// quality numbers can come from the timed run.
+template<typename Sketch, typename Jaccard>
+pair_counts brute_pairs(const std::vector<Sketch>& sketches, Jaccard jaccard, const std::vector<lsh_document>& docs,
+                        double threshold) {
+  pair_counts counts;
+  for (uint64_t i = 0; i < sketches.size(); ++i) {
+    for (uint64_t j = i + 1; j < sketches.size(); ++j) {
+      if (jaccard(sketches[i], sketches[j]) >= threshold) {
+        ++counts.reported;
+        if (docs[i].group >= 0 && docs[i].group == docs[j].group) {
+          ++counts.true_positives;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+/// One row of the lsh_performance quality TSV. Recall = true positives / true pairs, and
+/// precision = true positives / reported pairs, or NA when no pair is reported.
+void write_quality(std::ostream& out, const std::string& method, unsigned b, unsigned r, uint64_t n,
+                   uint64_t true_pairs, const pair_counts& pairs, uint64_t candidate_pairs,
+                   const std::string& band_collisions, const std::string& largest_bucket, double bytes_per_doc);
 
 }  // namespace characterise
 
