@@ -44,6 +44,8 @@ def _():
 
     # The same bytes for the same TSV, so committed SVG files change only when the data does.
     plt.rcParams["svg.hashsalt"] = "lsh_performance"
+    # Grids on every plot, so that the gradient of a log-log line is easy to read.
+    plt.rcParams.update({"axes.grid": True, "axes.grid.which": "both", "grid.linewidth": 0.5, "grid.alpha": 0.35})
 
     LICENCE = Path(__file__).read_text().split("\n\n", 1)[0].replace("# ", "").replace("#", "")
     FIT_POINTS = 3  # the brute-force line c N^2 is fitted to the largest 3 N of each method
