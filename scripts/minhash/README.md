@@ -174,9 +174,9 @@ are committed.
 | `minhash-lsh-accuracy` | The LSH candidate rate against the theory 1 − (1 − J^r)^b, and the reported rate (candidate and estimated J ≥ t, at t = 0.5, 0.7 and 0.9), for k = 64, 128 and 256 and every power-of-2 b, at J = 0 to 1 in steps of 0.01 | 14 s |
 | `minhash-lsh-accuracy-smoke` | The same, with k = 64 and 128, 256 trials and J in steps of 0.05 | 1 s |
 | `minhash-update-speed` | ns per item of `update()` against n = 1 to 2^20, for MinHash and theta, with `u64`, 8-byte and 64-byte string items | about 1.2 h (estimate) |
-| `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | less than 1 s |
+| `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | about 1 s |
 | `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 30 s (estimate) |
-| `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | about 1 s |
+| `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | less than 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
