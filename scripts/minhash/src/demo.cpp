@@ -201,4 +201,162 @@ std::string bins_table(const std::vector<bin_summary>& bins) {
   return os.str();
 }
 
+double candidate_probability(double j, unsigned rows, unsigned bands) {
+  return 1.0 - std::pow(1.0 - std::pow(j, static_cast<double>(rows)), static_cast<double>(bands));
+}
+
+bool is_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_t>& keys_b) {
+  if (keys_a.size() != keys_b.size()) {
+    throw std::invalid_argument("key lists differ in size: " + std::to_string(keys_a.size()) + " and " +
+                                std::to_string(keys_b.size()));
+  }
+  for (std::size_t i = 0; i < keys_a.size(); ++i) {
+    if (keys_a[i] == keys_b[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+double poisson_binomial_p_value(const std::vector<double>& probs, std::size_t observed) {
+  // dist[x] = P(X = x) after each Bernoulli: O(n^2), which is small for SCURVE_PAIRS_PER_BIN pairs
+  std::vector<double> dist(probs.size() + 1, 0.0);
+  dist[0] = 1.0;
+  for (std::size_t i = 0; i < probs.size(); ++i) {
+    const double p = probs[i];
+    for (std::size_t x = i + 1; x > 0; --x) {
+      dist[x] = dist[x] * (1.0 - p) + dist[x - 1] * p;
+    }
+    dist[0] *= 1.0 - p;
+  }
+  if (observed > probs.size()) {
+    return 0.0;
+  }
+  double lower = 0.0;  // P(X <= observed)
+  double upper = 0.0;  // P(X >= observed)
+  for (std::size_t x = 0; x < dist.size(); ++x) {
+    if (x <= observed) {
+      lower += dist[x];
+    }
+    if (x >= observed) {
+      upper += dist[x];
+    }
+  }
+  return std::min(1.0, 2.0 * std::min(lower, upper));
+}
+
+scurve_counter::scurve_counter(unsigned rows, unsigned bands) : rows_(rows), bands_(bands) {}
+
+void scurve_counter::add(double exact, bool candidate) {
+  const std::size_t bin = jaccard_bin(exact);
+  probs_[bin].push_back(candidate_probability(exact, rows_, bands_));
+  if (candidate) {
+    ++candidates_[bin];
+  }
+}
+
+std::vector<scurve_bin> scurve_counter::bins() const {
+  std::vector<scurve_bin> result;
+  result.reserve(NUM_BINS);
+  for (std::size_t bin = 0; bin < NUM_BINS; ++bin) {
+    const auto& probs = probs_[bin];
+    scurve_bin out{};
+    out.bin = bin;
+    out.pairs = probs.size();
+    out.candidates = candidates_[bin];
+    for (const double p : probs) {
+      out.expected += p;
+    }
+    out.p_value = poisson_binomial_p_value(probs, out.candidates);
+    out.filled = out.pairs >= MIN_BIN_PAIRS;
+    out.pass = out.filled && out.p_value >= SCURVE_ALPHA / static_cast<double>(NUM_BINS);
+    result.push_back(out);
+  }
+  return result;
+}
+
+bool scurve_passes(const std::vector<scurve_bin>& bins) {
+  return std::all_of(bins.begin(), bins.end(), [](const scurve_bin& b) { return b.pass; });
+}
+
+std::vector<scurve_bin> scurve_check(const band_key_function& keys_of, unsigned rows, unsigned bands) {
+  const auto k = static_cast<uint16_t>(rows * bands);
+  const uint64_t bin_width = SCURVE_UNION / NUM_BINS;  // 100 values of c in each bin
+  scurve_counter counter(rows, bands);
+  uint64_t pair = 0;
+  for (uint64_t bin = 0; bin < NUM_BINS; ++bin) {
+    for (uint64_t t = 0; t < SCURVE_PAIRS_PER_BIN; ++t, ++pair) {
+      const uint64_t c = bin * bin_width + 2 * (t % (bin_width / 2));  // even, so that a = b
+      const uint64_t a = (SCURVE_UNION - c) / 2;
+      const uint64_t o = pair << 32;
+      auto s1 = datasketches::minhash_sketch::builder().set_k(k).build();
+      auto s2 = datasketches::minhash_sketch::builder().set_k(k).build();
+      for (uint64_t x = o; x < o + a + c; ++x) {
+        s1.update(x);
+      }
+      for (uint64_t x = o + a; x < o + 2 * a + c; ++x) {
+        s2.update(x);
+      }
+      counter.add(static_cast<double>(c) / static_cast<double>(SCURVE_UNION), is_candidate(keys_of(s1), keys_of(s2)));
+    }
+  }
+  return counter.bins();
+}
+
+std::string scurve_table(const std::vector<scurve_bin>& bins) {
+  std::ostringstream os;
+  os << "| J bin | pairs | candidates | expected | candidate rate | expected rate | p-value | check |\n";
+  os << "|---|---:|---:|---:|---:|---:|---:|---|\n";
+  for (const auto& b : bins) {
+    const double low = static_cast<double>(b.bin) / static_cast<double>(NUM_BINS);
+    const double high = static_cast<double>(b.bin + 1) / static_cast<double>(NUM_BINS);
+    // the last bin holds J = 1, so it is closed
+    os << "| [" << fixed(low, 1) << ", " << fixed(high, 1) << (b.bin + 1 == NUM_BINS ? "] | " : ") | ")
+       << b.pairs << " | " << b.candidates << " | " << fixed(b.expected, 2) << " | ";
+    if (b.pairs == 0) {
+      os << "- | - | ";
+    } else {
+      const auto n = static_cast<double>(b.pairs);
+      os << fixed(static_cast<double>(b.candidates) / n, 6) << " | " << fixed(b.expected / n, 6) << " | ";
+    }
+    std::array<char, 32> p{};
+    std::snprintf(p.data(), p.size(), "%.3g", b.p_value);
+    os << p.data() << " | " << (b.pass ? "PASS" : (b.filled ? "FAIL" : "FAIL (bin not filled)")) << " |\n";
+  }
+  return os.str();
+}
+
+void pair_counts::add(bool is_similar, bool is_verified) {
+  if (is_similar) {
+    ++similar;
+  }
+  if (is_verified) {
+    ++verified;
+  }
+  if (is_similar && is_verified) {
+    ++both;
+  }
+}
+
+std::vector<bucket> largest_buckets(const std::vector<std::vector<uint64_t>>& keys_per_item, std::size_t count) {
+  // std::map keeps (band, key) order, so ties break by band, then key
+  std::map<std::pair<uint16_t, uint64_t>, std::vector<std::size_t>> by_key;
+  for (std::size_t i = 0; i < keys_per_item.size(); ++i) {
+    const auto& keys = keys_per_item[i];
+    for (std::size_t band = 0; band < keys.size(); ++band) {
+      by_key[{static_cast<uint16_t>(band), keys[band]}].push_back(i);  // ascending, because i ascends
+    }
+  }
+  std::vector<bucket> all;
+  all.reserve(by_key.size());
+  for (auto& entry : by_key) {
+    all.push_back(bucket{entry.first.first, entry.first.second, std::move(entry.second)});
+  }
+  // stable: equal sizes keep the (band, key) order of the map
+  std::stable_sort(all.begin(), all.end(),
+                   [](const bucket& a, const bucket& b) { return a.items.size() > b.items.size(); });
+  all.resize(std::min(count, all.size()));
+  return all;
+}
+
 }  // namespace demo
