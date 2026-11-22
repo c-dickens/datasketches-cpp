@@ -48,6 +48,27 @@ std::vector<std::string> split_tabs(const std::string& line) {
   return fields;
 }
 
+// The data rows of a speed profile: the "#" lines are skipped, and the header must match.
+std::vector<std::vector<std::string>> speed_rows(const std::string& tsv, const std::string& header) {
+  std::istringstream lines(tsv);
+  std::string line;
+  std::vector<std::vector<std::string>> rows;
+  bool header_seen = false;
+  while (std::getline(lines, line)) {
+    if (line.rfind('#', 0) == 0) {
+      continue;
+    }
+    if (!header_seen) {
+      REQUIRE(line == header);
+      header_seen = true;
+      continue;
+    }
+    rows.push_back(split_tabs(line));
+  }
+  REQUIRE(header_seen);
+  return rows;
+}
+
 }  // namespace
 
 TEST_CASE("quantile_header names the 9 quantile columns", "[characterise]") {
@@ -127,6 +148,66 @@ TEST_CASE("covers is inclusive at both ends", "[characterise]") {
   REQUIRE(characterise::covers(bounds, 0.75));
   REQUIRE(!characterise::covers(bounds, 0.2499));
   REQUIRE(!characterise::covers(bounds, 0.7501));
+}
+
+TEST_CASE("num_trials interpolates log-linearly from the max to the min trials", "[characterise]") {
+  REQUIRE(characterise::num_trials(1, 0, 20, 4, 16) == 65536);
+  REQUIRE(characterise::num_trials(1ULL << 20, 0, 20, 4, 16) == 16);
+  REQUIRE(characterise::num_trials(1ULL << 10, 0, 20, 4, 16) == 1024);
+}
+
+TEST_CASE("u64_items multiplies the index by the golden ratio constant", "[characterise]") {
+  REQUIRE(characterise::u64_items(3) == std::vector<uint64_t>{0, 0x9E3779B97F4A7C15ULL, 0x3C6EF372FE94F82AULL});
+}
+
+TEST_CASE("string_items gives distinct strings of the given length", "[characterise]") {
+  const auto items = characterise::string_items(2, 64);
+  REQUIRE(items.size() == 2);
+  REQUIRE(items[0].size() == 64);
+  REQUIRE(items[1].size() == 64);
+  REQUIRE(items[0] != items[1]);
+  REQUIRE(characterise::string_items(1, 8) == std::vector<std::string>{std::string(8, '\0')});
+}
+
+TEST_CASE("cpu_model is not empty", "[characterise]") {
+  REQUIRE(!characterise::cpu_model().empty());
+}
+
+TEST_CASE("the update_speed smoke profile writes one row per sketch, k, item type and n", "[characterise]") {
+  std::ostringstream out;
+  characterise::update_speed(out, true);
+  REQUIRE(out.str().find("\n# cpu=") != std::string::npos);
+  const auto rows =
+      speed_rows(out.str(), "Sketch\tK\tItemType\tN\tTrials\tMeanNsPerItem\tMinNsPerItem\tMaxNsPerItem");
+  const auto ns = characterise::pwr_2_law_points(1, 1ULL << 14, 4);
+  REQUIRE(rows.size() == 2 * characterise::SMOKE_K_VALUES.size() * 3 * ns.size());
+  for (const auto& row : rows) {
+    REQUIRE(row.size() == 8);
+    REQUIRE((row[0] == "minhash" || row[0] == "theta"));
+    REQUIRE((row[2] == "u64" || row[2] == "str8" || row[2] == "str64"));
+    REQUIRE(std::stoul(row[4]) == characterise::num_trials(std::stoul(row[3]), 0, 14, 2, 12));
+    // A trial at small n can take less than one clock tick, so the minimum can be 0.
+    REQUIRE(std::stod(row[6]) >= 0.0);
+    REQUIRE(std::stod(row[5]) > 0.0);
+    REQUIRE(std::stod(row[6]) <= std::stod(row[5]));
+    REQUIRE(std::stod(row[5]) <= std::stod(row[7]));
+  }
+}
+
+TEST_CASE("the call_speed smoke profile writes one row per sketch, k and operation", "[characterise]") {
+  std::ostringstream out;
+  characterise::call_speed(out, true);
+  REQUIRE(out.str().find("\n# cpu=") != std::string::npos);
+  const auto rows = speed_rows(out.str(), "Sketch\tK\tOperation\tCalls\tMeanNsPerCall");
+  REQUIRE(rows.size() == 2 * characterise::SMOKE_K_VALUES.size() * 3);
+  for (std::size_t r = 0; r < rows.size(); ++r) {
+    const auto& row = rows[r];
+    REQUIRE(row.size() == 5);
+    REQUIRE(row[0] == (r < rows.size() / 2 ? "minhash" : "theta"));
+    REQUIRE(row[2] == std::array<std::string, 3>{"construct", "merge", "jaccard"}[r % 3]);
+    REQUIRE(row[3] == "1024");
+    REQUIRE(std::stod(row[4]) > 0.0);
+  }
 }
 
 TEST_CASE("a copy saved from the stream after i items is the sketch of [0, i)", "[characterise]") {

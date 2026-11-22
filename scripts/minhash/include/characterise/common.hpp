@@ -26,6 +26,7 @@
 // quantile columns, in the style of apache/datasketches-characterization.
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <ostream>
 #include <string>
@@ -81,6 +82,20 @@ bool lsh_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64
 
 /// 1 - (1 - j^r)^b.
 double lsh_theory_rate(double j, unsigned r, unsigned b);
+
+/// round(2^lg_t), with lg_t = lg_max_t - (lg_max_t - lg_min_t) * (log2(x) - lg_min_x) / (lg_max_x - lg_min_x),
+/// and lg_t limited to [lg_min_t, lg_max_t]. This is get_num_trials of the characterisation repo.
+uint64_t num_trials(uint64_t x, unsigned lg_min_x, unsigned lg_max_x, unsigned lg_min_t, unsigned lg_max_t);
+
+/// The CPU model: on macOS from sysctlbyname("machdep.cpu.brand_string"), on Linux from the
+/// first "model name" line of /proc/cpuinfo, otherwise "unknown".
+std::string cpu_model();
+
+/// The items of one type, made once: "u64" gives i * 0x9E3779B97F4A7C15 (mod 2^64) as uint64_t;
+/// "str8" and "str64" give strings of 8 and 64 bytes: the 8 little-endian bytes of i, then
+/// 'x' up to the length.
+std::vector<uint64_t> u64_items(std::size_t n);
+std::vector<std::string> string_items(std::size_t n, std::size_t length);
 
 }  // namespace characterise
 
