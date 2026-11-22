@@ -82,6 +82,7 @@ public:
   /**
    * Adds a document's sketch to the index under the given id.
    * The first add fixes the expected k and seed; later adds must match.
+   * If add() throws, the index is unchanged, so the same id can be added again.
    * @param id unique document identifier
    * @param sketch the document's MinHash sketch (a copy is stored for verification)
    * @throws std::invalid_argument if the id is already present, the sketch is empty,

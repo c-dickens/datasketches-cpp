@@ -76,13 +76,24 @@ void minhash_lsh_index_alloc<A>::add(uint64_t id, const sketch_type& sketch) {
     throw std::invalid_argument("id already in the index: " + std::to_string(id));
   }
   const auto keys = band_keys(sketch, num_bands_); // validates divisibility and non-empty
-  // store the sketch before the band buckets: if a bucket insertion then fails, the
-  // document is merely under-indexed, whereas an id in a bucket with no stored sketch
-  // would make every later get_duplicate_clusters() throw
   sketches_.emplace(id, sketch);
-  for (uint16_t band = 0; band < num_bands_; ++band) {
-    auto result = bands_[band].emplace(keys[band], vector_u64(allocator_));
-    result.first->second.push_back(id);
+  // if a band insert throws, undo the earlier band inserts and the stored sketch, so a
+  // failed add leaves the index unchanged; the undo steps do not allocate or throw
+  uint16_t band = 0;
+  try {
+    for (; band < num_bands_; ++band) {
+      auto result = bands_[band].emplace(keys[band], vector_u64(allocator_));
+      result.first->second.push_back(id);
+    }
+  } catch (...) {
+    for (uint16_t done = 0; done <= band; ++done) {
+      const auto it = bands_[done].find(keys[done]);
+      if (it == bands_[done].end()) { continue; } // the failed band's emplace threw
+      if (done < band) { it->second.pop_back(); } // the id is the last element of its bucket
+      if (it->second.empty()) { bands_[done].erase(it); } // a new bucket of the failed band stays empty
+    }
+    sketches_.erase(id);
+    throw;
   }
 }
 
