@@ -56,6 +56,10 @@ add_executable(minhash_20news src/minhash_20news.cpp)
 target_link_libraries(minhash_20news PRIVATE news20 demo)
 target_compile_options(minhash_20news PRIVATE ${DEMO_WARNINGS})
 
+add_executable(lsh_20news src/lsh_20news.cpp)
+target_link_libraries(lsh_20news PRIVATE news20 demo)
+target_compile_options(lsh_20news PRIVATE ${DEMO_WARNINGS})
+
 # The characterisation harness (MH-16). The TSV metadata records the commit, the compiler and
 # the flags. The commit is read at configure time, so reconfigure before a run.
 execute_process(COMMAND git rev-parse HEAD
