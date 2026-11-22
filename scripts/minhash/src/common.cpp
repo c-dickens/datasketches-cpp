@@ -251,4 +251,29 @@ lsh_bucket_counts count_lsh_buckets(const std::vector<uint64_t>& keys, std::size
   return counts;
 }
 
+uint64_t lsh_true_pairs(const std::vector<lsh_document>& docs) {
+  uint64_t true_pairs = 0;
+  for (const auto& d : docs) {
+    // Each member adds its pairs with the earlier members of its group.
+    for (uint64_t e = d.id; d.group >= 0 && e > 0 && docs[e - 1].group == d.group; --e) {
+      ++true_pairs;
+    }
+  }
+  return true_pairs;
+}
+
+void write_quality(std::ostream& out, const std::string& method, unsigned b, unsigned r, uint64_t n,
+                   uint64_t true_pairs, const pair_counts& pairs, uint64_t candidate_pairs,
+                   const std::string& band_collisions, const std::string& largest_bucket, double bytes_per_doc) {
+  out << method << "\t" << b << "\t" << r << "\t" << n << "\t" << true_pairs << "\t" << pairs.reported << "\t"
+      << pairs.true_positives << "\t"
+      << static_cast<double>(pairs.true_positives) / static_cast<double>(true_pairs) << "\t";
+  if (pairs.reported == 0) {
+    out << "NA";
+  } else {
+    out << static_cast<double>(pairs.true_positives) / static_cast<double>(pairs.reported);
+  }
+  out << "\t" << candidate_pairs << "\t" << band_collisions << "\t" << largest_bucket << "\t" << bytes_per_doc << "\n";
+}
+
 }  // namespace characterise

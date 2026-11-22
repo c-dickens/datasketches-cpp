@@ -28,6 +28,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -205,6 +206,62 @@ struct lsh_bucket_counts {
 /// The bucket counts of `keys`, which holds the b band keys of each document in turn
 /// (document d at [d b, (d + 1) b)). b must be at least 1.
 lsh_bucket_counts count_lsh_buckets(const std::vector<uint64_t>& keys, std::size_t b);
+
+/// The reported pairs of one method, and those in one planted group.
+struct pair_counts {
+  uint64_t reported = 0;
+  uint64_t true_positives = 0;
+};
+
+/// The true pairs of the layout: the sum over planted groups of size (size - 1) / 2.
+uint64_t lsh_true_pairs(const std::vector<lsh_document>& docs);
+
+/// The pairs in the clusters, and those in one planted group. Clusters are connected
+/// components, so a pair whose estimate is below t is reported when other members link it.
+template<typename Clusters>
+pair_counts cluster_pairs(const Clusters& clusters, const std::vector<lsh_document>& docs) {
+  pair_counts counts;
+  for (const auto& cluster : clusters) {
+    const uint64_t c = cluster.size();
+    counts.reported += c * (c - 1) / 2;
+    std::map<int64_t, uint64_t> per_group;
+    for (const uint64_t id : cluster) {
+      if (docs[id].group >= 0) {
+        ++per_group[docs[id].group];
+      }
+    }
+    for (const auto& g : per_group) {
+      counts.true_positives += g.second * (g.second - 1) / 2;
+    }
+  }
+  return counts;
+}
+
+/// All pairs i < j with jaccard(i, j) >= threshold, and those in one planted group. The group
+/// check runs only for the pairs that pass, so it adds almost nothing to the timed work, and the
+/// quality numbers can come from the timed run.
+template<typename Sketch, typename Jaccard>
+pair_counts brute_pairs(const std::vector<Sketch>& sketches, Jaccard jaccard, const std::vector<lsh_document>& docs,
+                        double threshold) {
+  pair_counts counts;
+  for (uint64_t i = 0; i < sketches.size(); ++i) {
+    for (uint64_t j = i + 1; j < sketches.size(); ++j) {
+      if (jaccard(sketches[i], sketches[j]) >= threshold) {
+        ++counts.reported;
+        if (docs[i].group >= 0 && docs[i].group == docs[j].group) {
+          ++counts.true_positives;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+/// One row of the lsh_performance quality TSV. Recall = true positives / true pairs, and
+/// precision = true positives / reported pairs, or NA when no pair is reported.
+void write_quality(std::ostream& out, const std::string& method, unsigned b, unsigned r, uint64_t n,
+                   uint64_t true_pairs, const pair_counts& pairs, uint64_t candidate_pairs,
+                   const std::string& band_collisions, const std::string& largest_bucket, double bytes_per_doc);
 
 }  // namespace characterise
 

@@ -220,16 +220,20 @@ def _(BRUTE, LICENCE, brute_model, label, lsh_totals, mo, phase, results_dir, ru
             "",
             "## Crossover and speed-up",
             "",
-            f"| LSH (b, r) | brute force | c (s / N²) | smallest N where LSH is faster | speed-up at N = {max_n} |",
+            "| LSH (b, r) | brute force | c (s / N²) | smallest N from which LSH stays faster |"
+            f" speed-up at N = {max_n} |",
             "|---|---|---|---|---|",
         ]
         for (b, r), total in lsh.items():
             for method in BRUTE:
                 measured, fitted, c = brute_model(time, method)
-                faster = [n for n in total.index
-                          if total[n] < (measured[n] if n in measured.index else fitted(n))]
-                crossover = "none" if not faster else (f"≤ {faster[0]}" if faster[0] == total.index.min()
-                                                        else str(faster[0]))
+                faster = [total[n] < (measured[n] if n in measured.index else fitted(n)) for n in total.index]
+                # The crossover is the smallest N from which LSH stays faster up to the largest N.
+                i = len(faster)
+                while i > 0 and faster[i - 1]:
+                    i -= 1
+                crossover = ("none" if i == len(faster) else f"≤ {total.index[0]}" if i == 0
+                             else str(total.index[i]))
                 lines.append(f"| ({b}, {r}) | {method} | {c:.3g} | {crossover} |"
                              f" {fitted(max_n) / total[max_n]:.3g} |")
         lines += [

@@ -521,3 +521,60 @@ TEST_CASE("count_lsh_buckets counts a pair once, however many bands it shares", 
   REQUIRE(same.band_collisions == 4);
   REQUIRE(same.largest_bucket == 2);
 }
+
+namespace {
+// Groups 0 = {0, 1, 2} and 1 = {3, 4}, and one unrelated document 5. True pairs: 3 + 1 = 4.
+std::vector<characterise::lsh_document> small_layout() {
+  return {{0, 0, 0.8}, {1, 0, 0.8}, {2, 0, 0.8}, {3, 1, 0.7}, {4, 1, 0.7}, {5, -1, 0.0}};
+}
+}  // namespace
+
+TEST_CASE("lsh_true_pairs counts the pairs inside each planted group", "[characterise]") {
+  REQUIRE(characterise::lsh_true_pairs(small_layout()) == 4);
+  // In lsh_documents(1000), the groups are the runs of one group id.
+  const auto docs = characterise::lsh_documents(1000);
+  std::map<int64_t, uint64_t> sizes;
+  for (const auto& d : docs) {
+    if (d.group >= 0) {
+      ++sizes[d.group];
+    }
+  }
+  uint64_t expected = 0;
+  for (const auto& g : sizes) {
+    expected += g.second * (g.second - 1) / 2;
+  }
+  REQUIRE(characterise::lsh_true_pairs(docs) == expected);
+}
+
+TEST_CASE("cluster_pairs reports every pair in a cluster, and the true ones", "[characterise]") {
+  const auto docs = small_layout();
+  // One cluster joins group 0 with the unrelated document, and one holds group 1.
+  const std::vector<std::vector<uint64_t>> clusters{{0, 1, 2, 5}, {3, 4}};
+  const auto counts = characterise::cluster_pairs(clusters, docs);
+  REQUIRE(counts.reported == 6 + 1);
+  REQUIRE(counts.true_positives == 3 + 1);
+  // A cluster across two groups has no true pair between the groups.
+  const auto mixed = characterise::cluster_pairs(std::vector<std::vector<uint64_t>>{{2, 3}}, docs);
+  REQUIRE(mixed.reported == 1);
+  REQUIRE(mixed.true_positives == 0);
+}
+
+TEST_CASE("brute_pairs reports the pairs at or above the threshold, and the true ones", "[characterise]") {
+  const auto docs = small_layout();
+  // "Sketches" are numbers, and the similarity is 1 - |a - b|.
+  const std::vector<double> values{0.0, 0.0, 0.0, 10.0, 10.0, 0.5};
+  const auto similarity = [](double a, double b) { return 1.0 - (a > b ? a - b : b - a); };
+  const auto counts = characterise::brute_pairs(values, similarity, docs, 0.5);
+  // Passing: the 3 pairs of group 0, (3, 4), and document 5 with each of 0, 1, 2 (exactly 0.5).
+  REQUIRE(counts.reported == 3 + 1 + 3);
+  REQUIRE(counts.true_positives == 3 + 1);
+}
+
+TEST_CASE("write_quality gives recall, precision, and NA when nothing is reported", "[characterise]") {
+  std::ostringstream out;
+  characterise::write_quality(out, "m", 32, 4, 100, 4, {5, 3}, 7, "9", "2", 1024.0);
+  REQUIRE(out.str() == "m\t32\t4\t100\t4\t5\t3\t0.75\t0.6\t7\t9\t2\t1024\n");
+  std::ostringstream none;
+  characterise::write_quality(none, "m", 0, 0, 100, 4, {0, 0}, 4950, "NA", "NA", 8.0);
+  REQUIRE(none.str() == "m\t0\t0\t100\t4\t0\t0\t0\tNA\t4950\tNA\tNA\t8\n");
+}

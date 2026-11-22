@@ -90,49 +90,6 @@ std::string time_key(const std::string& method, unsigned b, unsigned r, uint64_t
   return method + "\t" + std::to_string(b) + "\t" + std::to_string(r) + "\t" + std::to_string(n) + "\t" + phase;
 }
 
-struct pair_counts {
-  uint64_t reported = 0;
-  uint64_t true_positives = 0;
-};
-
-bool same_group(const std::vector<lsh_document>& docs, uint64_t a, uint64_t b) {
-  return docs[a].group >= 0 && docs[a].group == docs[b].group;
-}
-
-void write_quality(std::ostream& out, const std::string& method, unsigned b, unsigned r, uint64_t n,
-                   uint64_t true_pairs, const pair_counts& pairs, uint64_t candidate_pairs,
-                   const std::string& band_collisions, const std::string& largest_bucket, double bytes_per_doc) {
-  out << method << "\t" << b << "\t" << r << "\t" << n << "\t" << true_pairs << "\t" << pairs.reported << "\t"
-      << pairs.true_positives << "\t"
-      << static_cast<double>(pairs.true_positives) / static_cast<double>(true_pairs) << "\t";
-  if (pairs.reported == 0) {
-    out << "NA";
-  } else {
-    out << static_cast<double>(pairs.true_positives) / static_cast<double>(pairs.reported);
-  }
-  out << "\t" << candidate_pairs << "\t" << band_collisions << "\t" << largest_bucket << "\t" << bytes_per_doc << "\n";
-}
-
-// The pairs in the clusters of the index, and those in one planted group. Clusters are connected
-// components, so a pair whose estimate is below t is reported when other members link it.
-pair_counts cluster_pairs(const index_type::vector_of_clusters& clusters, const std::vector<lsh_document>& docs) {
-  pair_counts counts;
-  for (const auto& cluster : clusters) {
-    const uint64_t c = cluster.size();
-    counts.reported += c * (c - 1) / 2;
-    std::map<int64_t, uint64_t> per_group;
-    for (const uint64_t id : cluster) {
-      if (docs[id].group >= 0) {
-        ++per_group[docs[id].group];
-      }
-    }
-    for (const auto& g : per_group) {
-      counts.true_positives += g.second * (g.second - 1) / 2;
-    }
-  }
-  return counts;
-}
-
 // CandidatePairs, BandCollisions and LargestBucket of the bands of all sketches.
 lsh_bucket_counts bucket_stats(const std::vector<sketch_type>& sketches, uint16_t b) {
   std::vector<uint64_t> keys;
@@ -142,25 +99,6 @@ lsh_bucket_counts bucket_stats(const std::vector<sketch_type>& sketches, uint16_
     keys.insert(keys.end(), k.begin(), k.end());
   }
   return count_lsh_buckets(keys, b);
-}
-
-// All pairs i < j with jaccard(i, j) >= t, and those in one planted group. The group check runs
-// only for the pairs that pass, so it adds almost nothing to the timed work, and the quality
-// numbers can come from the timed run.
-template<typename Sketch, typename Jaccard>
-pair_counts brute_pairs(const std::vector<Sketch>& sketches, Jaccard jaccard, const std::vector<lsh_document>& docs) {
-  pair_counts counts;
-  for (uint64_t i = 0; i < sketches.size(); ++i) {
-    for (uint64_t j = i + 1; j < sketches.size(); ++j) {
-      if (jaccard(sketches[i], sketches[j]) >= THRESHOLD) {
-        ++counts.reported;
-        if (same_group(docs, i, j)) {
-          ++counts.true_positives;
-        }
-      }
-    }
-  }
-  return counts;
 }
 
 // The matches of the queries: the candidates e != q with jaccard(q, e) >= t.
@@ -187,19 +125,11 @@ struct grid {
 
 void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out, double& sink) {
   const auto docs = lsh_documents(n);
-  uint64_t true_pairs = 0;
+  const uint64_t true_pairs = lsh_true_pairs(docs);
   std::vector<uint64_t> planted_ids;
   std::vector<uint64_t> unrelated_ids;
   for (const auto& d : docs) {
-    if (d.group < 0) {
-      unrelated_ids.push_back(d.id);
-    } else {
-      // Each member adds its pairs with the earlier members of its group.
-      for (uint64_t e = d.id; e > 0 && docs[e - 1].group == d.group; --e) {
-        ++true_pairs;
-      }
-      planted_ids.push_back(d.id);
-    }
+    (d.group < 0 ? unrelated_ids : planted_ids).push_back(d.id);
   }
   const auto planted_queries = smallest_hash_ids(planted_ids, g.queries, QUERY_SEED);
   const auto unrelated_queries = smallest_hash_ids(unrelated_ids, g.queries, QUERY_SEED);
@@ -252,7 +182,7 @@ void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out,
     const auto minhash_jaccard = [](const sketch_type& a, const sketch_type& b) { return a.jaccard(b); };
     if (n <= g.minhash_brute_max_n) {
       start = steady::now();
-      const auto pairs = brute_pairs(sketches, minhash_jaccard, docs);
+      const auto pairs = brute_pairs(sketches, minhash_jaccard, docs, THRESHOLD);
       times.add(time_key("minhash_brute", 0, 0, n, "brute"), seconds_since(start));
       sink += static_cast<double>(pairs.reported);
       if (first) {
@@ -280,7 +210,7 @@ void run_n(uint64_t n, const grid& g, timings& times, std::ostream& quality_out,
         return datasketches::theta_jaccard_similarity::jaccard(a, b)[1];
       };
       start = steady::now();
-      const auto pairs = brute_pairs(thetas, theta_jaccard, docs);
+      const auto pairs = brute_pairs(thetas, theta_jaccard, docs, THRESHOLD);
       times.add(time_key("theta_brute", 0, 0, n, "brute"), seconds_since(start));
       sink += static_cast<double>(pairs.reported);
       if (first) {
