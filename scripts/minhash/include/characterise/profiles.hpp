@@ -43,6 +43,12 @@ void accuracy_n_half(std::ostream& out, bool smoke);
 /// (candidate and estimated J >= t), for every power-of-2 b that divides k (MH-19).
 void lsh_accuracy(std::ostream& out, bool smoke);
 
+/// The update time of MinHash and theta per item, against n (MH-18).
+void update_speed(std::ostream& out, bool smoke);
+
+/// The time of construction, merge and jaccard of MinHash and theta per call, against k (MH-18).
+void call_speed(std::ostream& out, bool smoke);
+
 }  // namespace characterise
 
 #endif  // CHARACTERISE_PROFILES_HPP_

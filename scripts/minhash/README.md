@@ -173,6 +173,10 @@ are committed.
 | `minhash-accuracy-n-half-smoke` | The same, with k = 64 and 256, 256 trials, n up to 4096 and 4 points per octave | 1 s |
 | `minhash-lsh-accuracy` | The LSH candidate rate against the theory 1 − (1 − J^r)^b, and the reported rate (candidate and estimated J ≥ t, at t = 0.5, 0.7 and 0.9), for k = 64, 128 and 256 and every power-of-2 b, at J = 0 to 1 in steps of 0.01 | 14 s |
 | `minhash-lsh-accuracy-smoke` | The same, with k = 64 and 128, 256 trials and J in steps of 0.05 | 1 s |
+| `minhash-update-speed` | ns per item of `update()` against n = 1 to 2^20, for MinHash and theta, with `u64`, 8-byte and 64-byte string items | about 1.2 h (estimate) |
+| `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | less than 1 s |
+| `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 30 s (estimate) |
+| `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | about 1 s |
 
 The run time is for an Apple M4 laptop, not counting the build.
 
@@ -209,6 +213,33 @@ in place of `accuracy_n`. Its TSV has the line `# theta_lg_k=log2(K)-1`.
 - `lsh_accuracy.md`: the largest z-score for each k, and a guidance table for
   each (k, b, r, t): the J where the reported rate reaches 0.5, the reported rate
   at J = t − 0.1 and the miss rate at J = t + 0.1.
+
+The speed profiles (MH-18) compare MinHash with theta at the same k. Run
+them on a quiet machine, because other work changes the times. Each trial
+times only the update loop, and each call result goes into a sink, so that
+the compiler keeps the work. The numbers describe one machine, so the files
+are named with a tag `<compiler>_<cpu>`, for example
+`appleclang_21_0_0_21000101_apple_m4`:
+
+- `update_speed_<tag>.tsv` and `call_speed_<tag>.tsv`: the profile outputs.
+  The `#` lines also give the CPU.
+- `update_speed_<tag>.svg` and `call_speed_<tag>.svg`: the plots against n
+  and against k. MinHash is solid, and theta is dashed.
+- `speed_<tag>.md`: the tables of ns per item at the largest n and of ns per
+  call.
+
+The full speed results are not committed yet. MH-21 runs them on a quiet
+machine.
+
+Read the results with these limits:
+
+- At small n, one trial can take less than one tick of `steady_clock` (about
+  42 ns on Apple Silicon). The ns per item there is mostly the clock cost, and
+  the minimum can be 0. The table uses the largest n, where this has no effect.
+- `merge` is not the same operation for the two sketches. MinHash merges B in
+  place into a copy of A. Theta builds a new `theta_union`, updates it with A
+  and B, and calls `get_result()`, because a user who merges two theta
+  sketches does that.
 
 To open a plot notebook interactively:
 
