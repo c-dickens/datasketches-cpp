@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -90,6 +91,36 @@ minhash_sketch make_sketch_from_ranges(const std::vector<std::pair<uint64_t, uin
   }
   return sketch;
 }
+
+// allocations that throwing_allocator makes before it throws std::bad_alloc; negative means no limit
+int64_t allocations_left = -1;
+// allocations of throwing_allocator that are not yet deallocated
+int64_t live_allocations = 0;
+
+template<typename T>
+class throwing_allocator {
+public:
+  using value_type = T;
+  throwing_allocator() = default;
+  template<typename U>
+  throwing_allocator(const throwing_allocator<U>&) {} // NOLINT(google-explicit-constructor): containers rebind allocators implicitly
+  T* allocate(size_t n) {
+    if (allocations_left == 0) { throw std::bad_alloc(); }
+    if (allocations_left > 0) { --allocations_left; }
+    T* p = static_cast<T*>(::operator new(n * sizeof(T)));
+    ++live_allocations;
+    return p;
+  }
+  void deallocate(T* p, size_t) {
+    ::operator delete(p);
+    --live_allocations;
+  }
+};
+
+template<typename T, typename U>
+bool operator==(const throwing_allocator<T>&, const throwing_allocator<U>&) { return true; }
+template<typename T, typename U>
+bool operator!=(const throwing_allocator<T>&, const throwing_allocator<U>&) { return false; }
 
 } /* anonymous namespace */
 
@@ -265,6 +296,50 @@ TEST_CASE("minhash lsh: allocator", "[minhash_lsh]") {
   }
   REQUIRE(test_allocator_total_bytes == 0);
   REQUIRE(test_allocator_net_allocations == 0);
+}
+
+TEST_CASE("minhash lsh: a failed add leaves the index unchanged", "[minhash_lsh]") {
+  using index_type = minhash_lsh_index_alloc<throwing_allocator<uint64_t>>;
+  using sketch_type = minhash_sketch_alloc<throwing_allocator<uint64_t>>;
+  auto build = [](uint64_t from, uint64_t to) -> sketch_type {
+    auto sketch = sketch_type::builder().set_k(16).build();
+    for (uint64_t i = from; i < to; ++i) { sketch.update(i); }
+    return sketch;
+  };
+  const uint16_t num_bands = 8;
+  const uint64_t new_id = 10;
+  // the copy of document 0 reuses its buckets; the distinct sketch makes new buckets
+  for (const auto& added: {build(0, 100), build(1000, 1100)}) {
+    // each budget fails one allocation later, until add() has all the allocations it needs
+    int64_t num_failures = 0;
+    for (int64_t budget = 0; ; ++budget) {
+      index_type index(num_bands, 0.8);
+      for (uint64_t doc = 0; doc < 3; ++doc) { index.add(doc, build(doc * 200, doc * 200 + 100)); }
+      const auto candidates_before = index.query_candidates(added);
+
+      const int64_t live_before = live_allocations;
+      allocations_left = budget;
+      bool failed = false;
+      try {
+        index.add(new_id, added);
+      } catch (const std::bad_alloc&) {
+        failed = true;
+      }
+      allocations_left = -1;
+      if (!failed) { break; }
+      ++num_failures;
+      REQUIRE(live_allocations == live_before); // no bucket or stored sketch is left behind
+      REQUIRE(index.get_num_documents() == 3);
+      REQUIRE(index.query_candidates(added) == candidates_before);
+
+      index.add(new_id, added);
+      REQUIRE(index.get_num_documents() == 4);
+      const auto candidates = index.query_candidates(added);
+      REQUIRE(std::count(candidates.begin(), candidates.end(), new_id) == 1);
+    }
+    // each band insert allocates at least once, so some budgets fail part of the way through the bands
+    REQUIRE(num_failures > num_bands);
+  }
 }
 
 TEST_CASE("minhash lsh: identical sketches cluster in linear time", "[minhash_lsh]") {
