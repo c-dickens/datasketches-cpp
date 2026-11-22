@@ -1,6 +1,6 @@
 ---
 name: implement-ticket
-description: Implement one Linear ticket of the MinHash + LSH milestone (titles start with "MH-") in this fork, from reading the ticket to an open PR with evidence. Use when asked to implement, work on or pick up a CD-nnn or MH-n ticket.
+description: Implement one Linear ticket of the MinHash + LSH project (titles start with "MH-") in this fork, from reading the ticket to an open PR with evidence. Use when asked to implement, work on or pick up a CD-nnn or MH-n ticket.
 ---
 
 # Implement a ticket

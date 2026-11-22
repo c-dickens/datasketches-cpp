@@ -1,7 +1,7 @@
 # CLAUDE.md: c-dickens/datasketches-cpp, branch minhash/main
 
 This fork builds a MinHash sketch and an LSH index for Apache DataSketches C++.
-The work plan is the Linear project "Apache DataSketches", milestone "MinHash + LSH".
+The work plan is the Linear project "MinHash + LSH". Its milestones are Implementation, Demo, Characterisation performance, Real use case and Production readiness.
 
 ## Rules
 
