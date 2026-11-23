@@ -34,4 +34,6 @@ target_sources(minhash_test
     minhash_sketch_vectors_test.cpp
     minhash_sketch_stats_test.cpp
     minhash_lsh_test.cpp
+    minhash_lsh_bloom_test.cpp
+    minhash_lsh_bloom_stats_test.cpp
 )

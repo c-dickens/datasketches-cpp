@@ -160,6 +160,23 @@ checks them.
 | 4 | 2 | `F3E9632F9F03C03A` `27C14135F335F0F4` `3723008D9AFFAC4B` `2305CD44E2E10767` |
 | 8 | 1 | `417CAFB04294EE6D` `E446D225A8C57717` `8078FF4970395281` `7EC82DB84564B807` `9C90DDEE4659293E` `45B310F37D0C1831` `8385D5439F3F0B3F` `5A7FBBD7340692F6` |
 
+## LSHBloom
+
+`minhash_lsh_bloom` keeps b Bloom filters, one for each band. These rules
+make every language give the same flags:
+
+- Band key j (section "Band keys") goes into filter j, as a 64-bit integer.
+- Each filter is a DataSketches Bloom filter made by accuracy, for
+  max_distinct_items items and the per-band rate
+  p = 1 − (1 − p_eff)^(1/b), computed as `-expm1(log1p(-p_eff) / b)`. All b
+  filters use the same Bloom seed (default 9001). One seed is safe, because
+  band key j already uses the seed sketch seed + j.
+- `query_and_update` checks and inserts all b keys, flagged or not. A
+  document is flagged when at least one key was already present.
+- `query` checks the b keys and changes nothing.
+- The first sketch that is inserted fixes k and the sketch seed.
+- There is no serialized format yet (MH-27).
+
 ## Test vectors
 
 k = 8 and seed = 9001. Each row gives the item's bytes (hex, in hash order),

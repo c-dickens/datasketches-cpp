@@ -29,7 +29,7 @@ target_include_directories(minhash
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>
 )
 
-target_link_libraries(minhash INTERFACE common)
+target_link_libraries(minhash INTERFACE common filters)
 
 install(TARGETS minhash
   EXPORT ${PROJECT_NAME}
@@ -40,4 +40,6 @@ install(FILES
 			include/minhash_sketch_impl.hpp
 			include/minhash_lsh.hpp
 			include/minhash_lsh_impl.hpp
+			include/minhash_lsh_bloom.hpp
+			include/minhash_lsh_bloom_impl.hpp
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/DataSketches")

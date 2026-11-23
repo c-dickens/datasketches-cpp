@@ -125,6 +125,10 @@ A candidate pair whose estimated Jaccard similarity reaches the threshold.
 A set of items that verified pairs connect.
 *Avoid*: group, duplicate set
 
+**Flagged document**:
+A document that shares at least one band key with an earlier document.
+*Avoid*: duplicate, match
+
 ### Delivery
 
 **Issue**:
