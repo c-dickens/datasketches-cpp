@@ -25,6 +25,8 @@
 
 #include <catch2/catch.hpp>
 
+#include <test_allocator.hpp>
+
 #include "minhash_lsh_bloom.hpp"
 
 namespace datasketches {
@@ -181,6 +183,24 @@ TEST_CASE("minhash lsh bloom: capacity", "[minhash]") {
       REQUIRE(bloom.get_capacity() == b * rounded);
     }
   }
+}
+
+TEST_CASE("minhash lsh bloom: allocator", "[minhash]") {
+  using bloom_test_alloc = minhash_lsh_bloom_alloc<test_allocator<uint64_t>>;
+  using sketch_test_alloc = minhash_sketch_alloc<test_allocator<uint64_t>>;
+  test_allocator_total_bytes = 0;
+  test_allocator_net_allocations = 0;
+  {
+    bloom_test_alloc bloom(4, 100, 0.01, DEFAULT_SEED, test_allocator<uint64_t>(0));
+    // the 4 filters hold their bits in the allocator's memory
+    REQUIRE(test_allocator_total_bytes >= static_cast<long long>(bloom.get_capacity() / 8));
+    auto sketch = sketch_test_alloc::builder(test_allocator<uint64_t>(0)).set_k(16).build();
+    for (uint64_t i = 0; i < 100; ++i) { sketch.update(i); }
+    REQUIRE_FALSE(bloom.query_and_update(sketch));
+    REQUIRE(bloom.query(sketch));
+  }
+  REQUIRE(test_allocator_total_bytes == 0);
+  REQUIRE(test_allocator_net_allocations == 0);
 }
 
 TEST_CASE("minhash lsh bloom: flags equal the band-key rule", "[minhash]") {
