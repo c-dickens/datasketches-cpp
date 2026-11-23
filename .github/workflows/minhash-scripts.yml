@@ -50,4 +50,4 @@ jobs:
         run: cmake --build scripts/minhash/build -j 4
 
       - name: Test
-        run: ctest --test-dir scripts/minhash/build --output-on-failure
+        run: ctest --test-dir scripts/minhash/build --no-tests=error --output-on-failure
