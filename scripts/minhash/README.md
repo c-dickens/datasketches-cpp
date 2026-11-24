@@ -197,14 +197,22 @@ candidate with Ĵ ≥ t. It writes these files, which are committed:
 - `results/lsh_20news_full_estimates.tsv`: the error of Ĵ for each k.
 - `results/lsh_20news_full.md`: the summary, with the figures and the last
   line `Overall: PASS` or `Overall: FAIL`.
-- `results/lsh_20news_full_*.svg`: the 8 figures of the summary, from
+- `results/lsh_20news_full_*.svg`: the 9 figures of the summary, from
   `plots/lsh_20news_full.py`: the pair and cluster precision–recall curves,
   a table of colour of recall and precision, the counts against the theory,
   the verified rate for each J band, the estimate error against k, the 5
-  worst merges drawn as graphs, and a random sample of 12 clusters drawn as
-  graphs.
+  worst merges drawn as graphs, a random sample of 12 clusters drawn as
+  graphs, and the data-loss rate against the missed-duplicate rate.
 - `results/lsh_20news_full_bands.tsv`: the verified rate and the expected
   rate for each J band of width 0.1, at every grid point (report only).
+- `results/lsh_20news_full_heldout.tsv`: the held-out query check. The
+  index holds only the index set (XXHash64 of the post index, seed 2, is
+  even); each post of the query set calls `query_candidates()`, and only the
+  cross pairs count. Report only, at the MH-14 setting and the recommended
+  setting of each t.
+- `results/lsh_20news_full_kept.tsv`: deduplication with the LSH clusters
+  against the exact clusters at every grid point: the kept posts, the
+  wrongly removed posts and the missed duplicates (report only).
 - `results/lsh_20news_full_sample_clusters.tsv`: the posts, verified pairs
   and missed true pairs of the 12 sampled clusters at k = 128, 32 × 4,
   t = 0.5.

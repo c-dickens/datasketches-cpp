@@ -34,6 +34,18 @@ Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-1
 - **Co-membership pair:** two posts in the same cluster. It includes posts that only a chain links, so their exact J can be below t.
 - **Cluster recall:** the co-membership pairs that are in the true clusters and in the LSH clusters ÷ the co-membership pairs of the true clusters. **Cluster precision:** the same count ÷ the co-membership pairs of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a cluster counts every pair that a chain links.
 - **Merge:** an LSH cluster that joins 2 or more true clusters. Here a post in no true cluster counts as a true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.
+- **Index set and query set:** the held-out check splits the indexed posts in two. A post goes to the index set when XXHash64 of its post index (8 bytes, seed 2) is even, and to the query set otherwise. **Cross pair:** a pair with one post in each set. **Query hit rate:** of the queries with at least 1 true cross pair, the share that get at least 1 verified true cross pair.
+- **Kept set:** the posts that deduplication keeps: the smallest post of each cluster, and every post in no cluster. **Wrongly removed:** a post that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a post that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters.
+
+## How deduplication works
+
+MinHash does not store the posts or their items. The index keeps a copy of each post's sketch, which is its k slot values, and a table of band keys, so that it can find likely near-duplicates fast. What to do with them, here deduplication, is the next step.
+
+1. LSH finds the candidate pairs, and the program estimates Ĵ for each one.
+2. A pair with Ĵ ≥ t is a near-duplicate, so it becomes a link. A pair below t is not a duplicate, so no link is made. The pruning removes links, not documents.
+3. The links form clusters, which are groups of near-copies.
+4. Deduplication keeps one document from each cluster and removes the others. A document in no cluster is kept as it is.
+5. The downstream task, for example training or analysis, gets the kept documents.
 
 ## LSH guarantee
 
@@ -145,6 +157,23 @@ At k = 128, 32 × 4, t = 0.5:
 
 How to read it: the dots are the measured verified rate of each band, and the line is the expected rate. The dotted line marks t. Right of it, the rate is the recall for pairs of that J; left of it, the rate is the false-verify rate. The right panel shows the same rates on a log scale, so small rates are visible (a band with no verified pair is not drawn there).
 
+## Held-out queries
+
+The sections above index every post and cluster them, which is the use case "find near-copies inside a corpus". This section tests the other use case: build the index once, then query it with posts that it has never seen. The index holds only the index set (10008 posts). Each post of the query set (9917 posts) calls `query_candidates()`, and the candidates with Ĵ ≥ t are verified. The program asserts that the candidates equal the band-key bucket rule computed in the demo. Only the cross pairs count. The p-values are report only, with no PASS or FAIL. The data is in `lsh_20news_full_heldout.tsv`.
+
+| setting | k | b × r | t | true cross pairs | query recall | in-sample recall | query precision | in-sample precision | verified true: measured / expected | verified false: measured / expected | p recall | p precision | query hit rate |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 1261 | 0.9223 | 0.9230 | 0.9009 | 0.9052 | 1163 / 1175.7 | 128 / 112.4 | 0.112 | 0.0961 | 0.9331 (976 of 1046) |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 2989 | 0.9532 | 0.9590 | 0.9576 | 0.9568 | 2849 / 2873.9 | 126 / 132.9 | 0.00706 | 0.517 | 0.9585 (2101 of 2192) |
+| recommended at t = 0.4 | 512 | 128 × 4 | 0.4 | 1927 | 0.9725 | 0.9682 | 0.9591 | 0.9572 | 1874 / 1863.0 | 80 / 74.3 | 0.115 | 0.467 | 0.9762 (1478 of 1514) |
+| recommended at t = 0.5 | 512 | 256 × 2 | 0.5 | 1261 | 0.9611 | 0.9551 | 0.9596 | 0.9578 | 1212 / 1214.7 | 51 / 52.5 | 0.691 | 0.874 | 0.9685 (1013 of 1046) |
+| recommended at t = 0.6 | 512 | 256 × 2 | 0.6 | 857 | 0.9732 | 0.9699 | 0.9766 | 0.9739 | 834 / 830.6 | 20 / 28.0 | 0.512 | 0.0874 | 0.9741 (716 of 735) |
+| recommended at t = 0.7 | 256 | 128 × 2 | 0.7 | 624 | 0.9615 | 0.9625 | 0.9662 | 0.9593 | 600 / 602.4 | 21 / 20.0 | 0.612 | 0.875 | 0.9617 (527 of 548) |
+| recommended at t = 0.8 | 64 | 8 × 8 | 0.8 | 481 | 0.9647 | 0.9658 | 0.9627 | 0.9617 | 464 / 460.9 | 18 / 23.6 | 0.457 | 0.219 | 0.9717 (412 of 424) |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 418 | 0.9856 | 0.9840 | 0.9928 | 0.9889 | 412 / 411.8 | 3 / 6.8 | 1 | 0.138 | 0.9838 (364 of 370) |
+
+How to read it: query recall and precision should be close to the in-sample figures of the same setting, because a query post meets the same band keys and the same Ĵ test as an indexed post. The measured and expected counts should agree, as in the pair check. The query hit rate says how often a new post with a near-copy in the index finds at least one of them.
+
 ## Estimate error
 
 On the stored pairs with exact J ≥ 0.1. The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.
@@ -197,6 +226,25 @@ How to read it: each column is one merge of the table above, in the same order. 
 ![A random sample of the clusters as graphs](lsh_20news_full_sample_clusters.svg)
 
 How to read it: each panel is one LSH cluster. Each dot is a post, coloured by its true cluster at t = 0.5, and a grey dot is in no true cluster. A solid line is a verified pair, labelled with its exact J, and it is red when J < t. A dashed line is a true pair (J ≥ t) between drawn posts that LSH did not verify; the chain still puts both posts in the cluster. The data is in `lsh_20news_full_sample_clusters.tsv`.
+
+## Kept set (deduplication)
+
+The same deduplication runs twice at each grid point: once on the true clusters, and once on the LSH clusters. Each keeps the smallest post of each cluster and every post in no cluster. The comparison shows what LSH costs a downstream task: posts lost by mistake, and near-copies left in. All grid points are in `lsh_20news_full_kept.tsv`.
+
+| setting | k | b × r | t | posts | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 19925 | 17875 | 17850 | 163 | 138 | 0.0091 | 0.0673 |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 19925 | 15573 | 15577 | 145 | 149 | 0.0093 | 0.0342 |
+| recommended at t = 0.4 | 512 | 128 × 4 | 0.4 | 19925 | 16939 | 16917 | 99 | 77 | 0.0058 | 0.0258 |
+| recommended at t = 0.5 | 512 | 256 × 2 | 0.5 | 19925 | 17875 | 17886 | 69 | 80 | 0.0039 | 0.0390 |
+| recommended at t = 0.6 | 512 | 256 × 2 | 0.6 | 19925 | 18479 | 18481 | 37 | 39 | 0.0020 | 0.0270 |
+| recommended at t = 0.7 | 256 | 128 × 2 | 0.7 | 19925 | 18876 | 18876 | 38 | 38 | 0.0020 | 0.0362 |
+| recommended at t = 0.8 | 64 | 8 × 8 | 0.8 | 19925 | 19099 | 19092 | 32 | 25 | 0.0017 | 0.0303 |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 19925 | 19206 | 19209 | 7 | 10 | 0.0004 | 0.0139 |
+
+![Data-loss rate against missed-duplicate rate](lsh_20news_full_kept.svg)
+
+How to read it: one panel for each r, and one curve for each k, with a point for each t. Lower left is good. A point high on the y axis removes posts that have no near-copy (data loss, mostly from merges). A point far right keeps near-copies that should go (missed duplicates, mostly from splits).
 
 ## The 20 true pairs with the highest J
 

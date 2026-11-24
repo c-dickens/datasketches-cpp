@@ -578,3 +578,64 @@ TEST_CASE("smallest_hashes chooses the keys with the smallest hash", "[demo]") {
   REQUIRE(few.size() == 2);
   REQUIRE(std::set<std::size_t>(few.begin(), few.end()) == std::set<std::size_t>{0, 1});
 }
+
+TEST_CASE("in_index_set splits by the parity of the hash", "[demo]") {
+  std::size_t in_index = 0;
+  for (std::size_t key = 0; key < 1000; ++key) {
+    const auto value = static_cast<uint64_t>(key);
+    REQUIRE(demo::in_index_set(key, 2) == (XXHash64::hash(&value, 8, 2) % 2 == 0));
+    in_index += demo::in_index_set(key, 2) ? 1 : 0;
+  }
+  // About half; the bound is 5 SD of Binomial(1000, 1/2), which is 79.
+  REQUIRE(in_index > 500 - 79);
+  REQUIRE(in_index < 500 + 79);
+}
+
+TEST_CASE("bucket_table gives the items that share a band key with the query", "[demo]") {
+  // Items 10, 20, 30 with 3 bands. Item 20 shares band 1 with the query; item 30 shares bands 0 and 2.
+  const demo::bucket_table table({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}}, {10, 20, 30});
+  REQUIRE(table.candidates({7, 5, 9}) == std::vector<std::size_t>{20, 30});
+  REQUIRE(table.candidates({0, 0, 0}).empty());
+  REQUIRE(table.candidates({1, 2, 3}) == std::vector<std::size_t>{10});
+  REQUIRE_THROWS_AS(demo::bucket_table({{1}}, {1, 2}), std::invalid_argument);
+}
+
+TEST_CASE("bucket_table equals query_candidates of the index", "[demo]") {
+  std::vector<datasketches::minhash_sketch> sketches;
+  std::vector<std::vector<uint64_t>> keys;
+  std::vector<std::size_t> ids;
+  datasketches::minhash_lsh_index index(8, 0.5);
+  for (uint64_t i = 0; i < 50; ++i) {
+    auto s = datasketches::minhash_sketch::builder().set_k(32).build();
+    for (uint64_t x = (i % 5) * 7; x < (i % 5) * 7 + 40; ++x) {  // 5 groups of overlapping sets
+      s.update(x * 1000 + (x % 3 == 0 ? i : 0));
+    }
+    const auto k = datasketches::minhash_lsh_index::band_keys(s, 8);
+    if (i % 2 == 0) {
+      index.add(i, s);
+      keys.emplace_back(k.begin(), k.end());
+      ids.push_back(i);
+    }
+    sketches.push_back(s);
+  }
+  const demo::bucket_table table(keys, ids);
+  for (uint64_t q = 1; q < 50; q += 2) {
+    const auto expected = index.query_candidates(sketches[q]);
+    const auto k = datasketches::minhash_lsh_index::band_keys(sketches[q], 8);
+    REQUIRE(table.candidates(std::vector<uint64_t>(k.begin(), k.end())) ==
+            std::vector<std::size_t>(expected.begin(), expected.end()));
+  }
+}
+
+TEST_CASE("compare_kept counts the kept, wrongly removed and missed items", "[demo]") {
+  // True: {0, 1, 2}, {3, 4}, 5 and 6 alone, so 0, 3, 5 and 6 are kept.
+  // LSH: {0, 1}, {3, 4, 5}, 2 and 6 alone, so 0, 2, 3 and 6 are kept.
+  const auto k = demo::compare_kept({0, 0, 2, 3, 3, 3, 6}, {0, 0, 0, 3, 3, 5, 6});
+  REQUIRE(k.items == 7);
+  REQUIRE(k.kept_exact == 4);
+  REQUIRE(k.kept_lsh == 4);
+  REQUIRE(k.kept_both == 3);
+  REQUIRE(k.wrongly_removed == 1);    // 5: LSH merged it into {3, 4}
+  REQUIRE(k.missed_duplicates == 1);  // 2: LSH split it from {0, 1}
+  REQUIRE_THROWS_AS(demo::compare_kept({0}, {0, 1}), std::invalid_argument);
+}

@@ -721,6 +721,58 @@ std::vector<std::size_t> smallest_hashes(const std::vector<std::size_t>& keys, s
   return positions;
 }
 
+bool in_index_set(std::size_t key, uint64_t seed) {
+  const auto value = static_cast<uint64_t>(key);
+  return XXHash64::hash(&value, sizeof(value), seed) % 2 == 0;
+}
+
+bucket_table::bucket_table(const std::vector<std::vector<uint64_t>>& keys_per_item,
+                           const std::vector<std::size_t>& ids) {
+  if (keys_per_item.size() != ids.size()) {
+    throw std::invalid_argument("keys_per_item and ids differ in size");
+  }
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    const auto& keys = keys_per_item[i];
+    if (bands_.size() < keys.size()) {
+      bands_.resize(keys.size());
+    }
+    for (std::size_t band = 0; band < keys.size(); ++band) {
+      bands_[band][keys[band]].push_back(ids[i]);
+    }
+  }
+}
+
+std::vector<std::size_t> bucket_table::candidates(const std::vector<uint64_t>& query_keys) const {
+  std::vector<std::size_t> result;
+  for (std::size_t band = 0; band < query_keys.size() && band < bands_.size(); ++band) {
+    const auto it = bands_[band].find(query_keys[band]);
+    if (it != bands_[band].end()) {
+      result.insert(result.end(), it->second.begin(), it->second.end());
+    }
+  }
+  std::sort(result.begin(), result.end());
+  result.erase(std::unique(result.begin(), result.end()), result.end());
+  return result;
+}
+
+kept_counts compare_kept(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label) {
+  if (lsh_label.size() != true_label.size()) {
+    throw std::invalid_argument("label lists differ in size");
+  }
+  kept_counts out{};
+  out.items = lsh_label.size();
+  for (std::size_t i = 0; i < lsh_label.size(); ++i) {
+    const bool exact = true_label[i] == i;
+    const bool lsh = lsh_label[i] == i;
+    out.kept_exact += exact ? 1 : 0;
+    out.kept_lsh += lsh ? 1 : 0;
+    out.kept_both += exact && lsh ? 1 : 0;
+    out.wrongly_removed += exact && !lsh ? 1 : 0;
+    out.missed_duplicates += lsh && !exact ? 1 : 0;
+  }
+  return out;
+}
+
 bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs) {
   pairs.clear();
   const auto header_lines = static_cast<std::size_t>(std::count(header.begin(), header.end(), '\n'));
