@@ -326,6 +326,34 @@ To open a plot notebook interactively:
 uvx marimo edit plots/accuracy_j.py
 ```
 
+## MH-E item analysis
+
+```bash
+uv run scripts/minhash/analysis/mhe_explore.py    # from the repo root
+```
+
+The script (MH-E1) measures the candidate MinHash items of a trajectory, so
+that the owner can choose one in MH-E. It needs `data/trajectories.parquet`
+(run `data/get_trajectories.sh` first). It reads the full message content of
+the MH-15 sample, the first 1,000 qualifying task instances (about 11,400
+trajectories), with the `duckdb` Python package. It does not use the JSON
+lines export or the DuckDB CLI.
+
+It starts with a self-check of its item rules on fixed data. Then, for each
+candidate item (files, commands, step symbols of width 1 to 5, action text and
+two forms of patch lines), it computes the exact set and weighted Jaccard of
+related pairs (same task instance), hard negatives (same repo, different task
+instance) and unrelated pairs (different repos). It applies the fixed rules of
+the ticket and writes `results/mhe_explore.md`, which is committed: the
+candidate table, the recommended item, t, (b, r) and k, and 30 pairs for a
+human check. Items are identified by their XXH64, so the Jaccard values are
+exact unless two different items of one pair collide in 64 bits.
+
+The run takes about 5 minutes on 4 CPUs. It needs about 8 GB of memory while
+DuckDB reads the parquet file, and about 1.5 GB after that. The report ends
+with the run time and the machine. Two runs give the same file except for that
+line.
+
 ## Credits
 
 - **20 Newsgroups.** Collected by Ken Lang. Mirrored by Jason Rennie at
