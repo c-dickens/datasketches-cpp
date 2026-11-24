@@ -656,16 +656,14 @@ uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vecto
     throw std::invalid_argument("ids and sets differ in size");
   }
   XXHash64 hasher(0);
-  const auto add_line = [&hasher](const std::string& text) {
-    hasher.add(text.data(), text.size());
-    hasher.add("\n", 1);
-  };
+  std::string text;  // one add() per set: GCC's -Warray-bounds misreads add() of a short literal
   for (std::size_t s = 0; s < sets.size(); ++s) {
-    add_line(std::to_string(ids[s]));
+    text = std::to_string(ids[s]) + "\n";
     for (const auto& item : sets[s]) {
-      add_line(item);
+      text += item + "\n";
     }
-    add_line("");
+    text += "\n";
+    hasher.add(text.data(), text.size());
   }
   return hasher.hash();
 }

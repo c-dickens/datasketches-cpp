@@ -228,6 +228,8 @@ double reported_probability(double j, unsigned rows, unsigned bands, std::size_t
 
 /// The two pair tests of one grid point. The tested pairs are the true pairs (exact J >= t) for
 /// recall, and the pairs with 0 < J < t for precision. A pair with J = 0 has probability 0.
+/// The p-values treat the pairs as independent. Pairs that share an item use the same signature,
+/// so they are positively correlated, and the p-values are smaller than the true ones.
 struct pair_check {
   pair_counts counts;        // similar: J >= t; verified: reported
   std::size_t false_pairs;   // pairs with 0 < J < t
