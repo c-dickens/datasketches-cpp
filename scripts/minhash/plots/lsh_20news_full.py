@@ -49,7 +49,7 @@ def _():
     args = [a for a in sys.argv[1:] if not a.startswith("-")] if not mo.running_in_notebook() else []
     results_dir = Path(args[0]) if args else Path("results")
     STEM = args[1] if len(args) > 1 else "lsh_20news_full"
-    ITEMS = {"lsh_reuters_full": "documents"}.get(STEM, "posts")  # the word for the items in the figures
+    ITEMS = {"lsh_reuters_full": "documents", "lsh_trajectories_full": "trajectories"}.get(STEM, "posts")  # the word for the items in the figures
 
     # The same bytes for the same TSV, so the committed SVG file changes only when the data does.
     plt.rcParams["svg.hashsalt"] = STEM
@@ -248,7 +248,10 @@ def _(ITEMS, STEM, merges, plt, save_svg, threshold):
             for row, setting in enumerate(settings):
                 ax = axes[row][col]
                 edges = merges[(merges["Merge"] == m) & (merges["Kind"] == "edge") & (merges["Setting"] == setting)]
-                for _, e in edges.iterrows():
+                drawn = len(names) <= 300  # shortcut: as in _samples, a larger merge gets a text panel
+                if not drawn:
+                    ax.text(0, 0, f"{len(names)} {ITEMS}:\ntoo large to draw", ha="center", va="center", fontsize=9)
+                for _, e in (edges.iterrows() if drawn else iter(())):
                     (x1, y1), (x2, y2) = pos[e["Post"]], pos[e["Other"]]
                     false_link = float(e["ExactJ"]) < threshold
                     ax.plot([x1, x2], [y1, y2], color="#d62728" if false_link else "#999999",
@@ -259,17 +262,17 @@ def _(ITEMS, STEM, merges, plt, save_svg, threshold):
                                 bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.5})
                 if row == 0 and len(edges):
                     weakest = edges.loc[edges["ExactJ"].astype(float).idxmin()]
-                if weakest is not None and ((edges["Post"] == weakest["Post"]) & (edges["Other"] == weakest["Other"])).any():
+                if drawn and weakest is not None and ((edges["Post"] == weakest["Post"]) & (edges["Other"] == weakest["Other"])).any():
                     (x1, y1), (x2, y2) = pos[weakest["Post"]], pos[weakest["Other"]]
                     ax.plot([x1, x2], [y1, y2], color="#d62728", linewidth=3.5, zorder=1)
-                for name in names:
+                for name in (names if drawn else []):
                     ax.scatter(*pos[name], s=60, color=colour_of[nodes.loc[nodes["Post"] == name, "TrueCluster"].iloc[0]],
                                edgecolor="black", linewidth=0.5, zorder=2)
                 false_links = int((edges["ExactJ"].astype(float) < threshold).sum())
                 parts = nodes["TrueCluster"].nunique()
-                ax.set_title(f"merge {m}: {len(names)} {ITEMS}, {parts} true clusters\n"
-                             f"{len(edges)} reported pairs, {false_links} false" if row == 0 else
-                             f"{len(edges)} reported pairs, {false_links} false", fontsize=8)
+                pairs_text = f"{len(edges)} reported pairs, {false_links} false" if drawn else "pairs not listed"
+                ax.set_title(f"merge {m}: {len(names)} {ITEMS}, {parts} true clusters\n{pairs_text}" if row == 0 else
+                             pairs_text, fontsize=8)
                 ax.set_xlim(-1.3, 1.3)
                 ax.set_ylim(-1.3, 1.3)
                 ax.set_aspect("equal")
@@ -288,8 +291,8 @@ def _(ITEMS, STEM, merges, plt, save_svg, threshold):
 
 
 @app.cell
-def _(STEM, bands, plt, save_svg):
-    REF = {"K": 128, "R": 4, "T": 0.5}  # the MH-14 setting
+def _(STEM, bands, plt, save_svg, threshold):
+    REF = {"K": 128, "R": 4, "T": threshold}  # the reference setting: the MH-14 setting (t = 0.5) or MH-E1 (t = 0.4)
 
     def _bands():
         """The verified rate of each J band at the MH-14 setting, measured against the theory."""
@@ -345,7 +348,12 @@ def _(ITEMS, STEM, plt, samples, save_svg, threshold):
             true_clusters = [c for c in dict.fromkeys(nodes["TrueCluster"]) if c != "-"]
             colour_of = {c: palette(i % 10) for i, c in enumerate(true_clusters)}
             edges = samples[(samples["Sample"] == s) & (samples["Kind"] != "node")]
-            for _, e in edges.iterrows():
+            # shortcut: a cluster of more than 300 items is too large to draw one line at a time; it gets a
+            # text panel (the report gives its size). Draw it with a LineCollection if a figure of it is needed.
+            drawn = len(names) <= 300
+            if not drawn:
+                ax.text(0, 0, f"{len(names)} {ITEMS}:\ntoo large to draw", ha="center", va="center", fontsize=9)
+            for _, e in (edges.iterrows() if drawn else iter(())):
                 (x1, y1), (x2, y2) = pos[e["Post"]], pos[e["Other"]]
                 missed = e["Kind"] == "missed"
                 false_link = float(e["ExactJ"]) < threshold
@@ -355,7 +363,7 @@ def _(ITEMS, STEM, plt, samples, save_svg, threshold):
                 if false_link and len(names) <= 12:
                     ax.text((x1 + x2) / 2, (y1 + y2) / 2, f"{float(e['ExactJ']):.2f}", fontsize=6, color="#d62728",
                             ha="center", va="center", bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.3})
-            for name in names:
+            for name in (names if drawn else []):
                 cluster = nodes.loc[nodes["Post"] == name, "TrueCluster"].iloc[0]
                 ax.scatter(*pos[name], s=45, color=colour_of.get(cluster, "#bbbbbb"), edgecolor="black",
                            linewidth=0.5, zorder=2)
@@ -363,8 +371,9 @@ def _(ITEMS, STEM, plt, samples, save_svg, threshold):
             false_links = int(((edges["Kind"] == "verified") & (edges["ExactJ"].astype(float) < threshold)).sum())
             missed = int((edges["Kind"] == "missed").sum())
             parts = len(true_clusters) + int((nodes["TrueCluster"] == "-").sum())
+            pairs_text = f"{verified} verified ({false_links} false), {missed} missed" if drawn else "pairs not listed"
             ax.set_title(f"cluster {s}: {len(names)} {ITEMS}, {parts} true part{'s' if parts > 1 else ''}\n"
-                         f"{verified} verified ({false_links} false), {missed} missed", fontsize=8)
+                         f"{pairs_text}", fontsize=8)
             ax.set_xlim(-1.3, 1.3)
             ax.set_ylim(-1.3, 1.3)
             ax.set_aspect("equal")
@@ -410,13 +419,18 @@ def _(STEM, kept, plt, save_svg):
 @app.cell
 def _(STEM, bands, pd, plt, results_dir, save_svg):
     def _compare():
-        """The verified rate of each J band on 20 Newsgroups and on Reuters-21578, at the MH-14 setting."""
-        other = results_dir / "lsh_20news_full_bands.tsv"
-        if STEM != "lsh_reuters_full" or not other.exists():
+        """The verified rate of each J band on the earlier datasets and on this one, at the MH-14 setting."""
+        names = {"lsh_20news_full": "20 Newsgroups", "lsh_reuters_full": "Reuters-21578",
+                 "lsh_trajectories_full": "agent trajectories"}
+        earlier = {"lsh_reuters_full": ["lsh_20news_full"],
+                   "lsh_trajectories_full": ["lsh_20news_full", "lsh_reuters_full"]}.get(STEM, [])
+        others = [results_dir / f"{o}_bands.tsv" for o in earlier]
+        if not others or not all(o.exists() for o in others):
             return None
         fig, ax = plt.subplots(figsize=(8, 5))
-        for table, label, colour in [(pd.read_csv(other, sep="\t", comment="#"), "20 Newsgroups", "#1f77b4"),
-                                     (bands, "Reuters-21578", "#d62728")]:
+        tables = [pd.read_csv(o, sep="\t", comment="#") for o in others] + [bands]
+        for table, label, colour in zip(tables, [names[o] for o in earlier] + [names[STEM]],
+                                        ["#1f77b4", "#d62728", "#2ca02c"]):
             d = table[(table["K"] == 128) & (table["R"] == 4) & (table["T"] == 0.5) & (table["Pairs"] > 0)]
             middle = (d["BandLo"] + d["BandHi"]) / 2
             ax.plot(middle, d["ExpectedRate"], "-", color=colour, alpha=0.6, label=f"{label}: expected")
@@ -427,7 +441,7 @@ def _(STEM, bands, pd, plt, results_dir, save_svg):
         ax.set_xlabel("J band (midpoint)")
         ax.set_ylabel("verified rate")
         ax.legend(fontsize=8, loc="upper left")
-        fig.suptitle("Verified rate for each J band on both datasets, at k = 128, 32 × 4, t = 0.5")
+        fig.suptitle(f"Verified rate for each J band on {len(tables)} datasets, at k = 128, 32 × 4, t = 0.5")
         fig.tight_layout()
         return save_svg(fig, f"{STEM}_bands_compare.svg")
 

@@ -299,6 +299,34 @@ Reuters has no `Message-ID`, so the third check is **identical shingle sets**:
 each pair of indexed documents with identical shingle sets must be in one true
 cluster and in one LSH cluster, at every grid point.
 
+## Full-data LSH check on agent trajectories (MH-15b)
+
+```bash
+FULL=1 TRAJECTORIES=1 ./run_demos.sh
+uv run analysis/trajectory_action_text.py
+build/lsh_trajectories_full data/trajectories_action_text results
+build/lsh_trajectories_full --smoke data/trajectories_action_text results/smoke
+```
+
+The same check on the 11,166 trajectories of the MH-15 sample. The item is MH-E
+decision 1: the set of words of the agent's own tool-call arguments, cut by
+`demo::words` (`include/demo/words.hpp`), the word tokenizer that 20 Newsgroups
+and Reuters also use (`news20::tokenize` calls it). The data bridge
+`analysis/trajectory_action_text.py` reads `data/trajectories.parquet` and
+writes the action text, one line per trajectory, to
+`data/trajectories_action_text/action_text.tsv` (about 440 MB, git-ignored).
+
+The CD-416 decisions change the grid through `demo::full_source`: r ∈ {4, 8, 16}
+(at r = 2 almost every pair is a candidate, because the background J is about
+0.27), t ∈ {0.4, 0.45, …, 0.6}, the MH-E1 setting k = 128, 32 × 4, t = 0.4, and
+a floor: the cache stores only the pairs with J ≥ 0.35, and
+`data/lsh_trajectories_full_exact_pairs_low.tsv` counts the others in J bins of
+width 0.001 (committed in `results/`). The pair check is report only, because
+the pairs are strongly correlated here. The report adds the same-instance
+proxy, and `results/lsh_trajectories_full_bands_compare.svg` compares the band
+rates of all three datasets, so it runs after the other two checks. The full
+run takes about 10 minutes without its cache, and about 4 minutes with it.
+
 ## Band-key test vectors
 
 `vectors/band_keys.py` computes the 15 band-key test vectors of

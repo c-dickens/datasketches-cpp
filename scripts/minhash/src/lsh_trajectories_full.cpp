@@ -108,9 +108,21 @@ demo::full_source load(const fs::path& data_dir, bool smoke) {
       "The correlation is strong here, because all trajectories share a common vocabulary (the background J is "
       "about 0.27). A smoke-run diagnosis (2,000 trajectories, k = 128, 30 sketch seeds, a pair counted when "
       "Ĵ ≥ t) found that the mean counts over the seeds match the model, for example 1,954 against 1,951 verified "
-      "true pairs at t = 0.4, but their spread is 5 to 400 times the independent-pair SD. So the p-values below say "
+      "true pairs at t = 0.4, but their spread is 5 to 400 times the independent-pair SD. The spread has a long "
+      "right tail: at t = 0.4 the verified false pairs of the 30 seeds run from 690 to 38,030 (median 4,448, mean "
+      "6,807, expected 7,530), and 20 of the 30 seeds are below the mean. So one seed is usually below the model in "
+      "the J bands under t, as in the band table below. A likely cause: when a common word has the smallest hash in "
+      "a slot, that slot is equal for millions of pairs at once. So the p-values below say "
       "little, and `Overall` covers only the prefix assert, the identical-set check and the index-consistency "
       "assert. A better test is future work.\n\n";
+  src.bands_extra =
+      "![Verified rate for each J band on 3 datasets](lsh_trajectories_full_bands_compare.svg)\n\n"
+      "How to read it: the verified rate of each J band at k = 128, 32 × 4, t = 0.5 (a grid point of all three "
+      "reports), on 20 Newsgroups (blue, from `lsh_20news_full_bands.tsv`), Reuters-21578 (red, from "
+      "`lsh_reuters_full_bands.tsv`) and the agent trajectories (green). The dots are the measured rates, and the "
+      "lines are the expected rates of each dataset. All three datasets use the same word tokenizer. The expected "
+      "lines differ a little in the steep bands near t, because the mix of J values inside a band differs between "
+      "the datasets.\n\n";
   src.proxy_title = "Same-instance proxy";
   src.proxy_text =
       "The data has no similarity labels. The proxy says that two trajectories of the same task instance are "

@@ -191,7 +191,9 @@ void write_file(const fs::path& path, const std::string& text) {
   }
 }
 
-constexpr double LOW_BIN_WIDTH = 0.001;  // the J bins of the pairs below the floor
+constexpr double LOW_BIN_WIDTH = 0.001;
+// The figure TSVs list the pairs of a cluster only up to this size; a larger cluster gets its node rows only.
+constexpr std::size_t MAX_LISTED_CLUSTER = 300;  // the J bins of the pairs below the floor
 
 // The pairs with 0 < J < floor, by J bin of width LOW_BIN_WIDTH.
 struct low_bins {
@@ -934,6 +936,10 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
                    << "\t-\t-\n";
       }
       sample_merges += parts.size() >= 2 ? 1 : 0;
+      if (members.size() > MAX_LISTED_CLUSTER) {
+        sample_tsv << "# sample " << s + 1 << ": more than " << MAX_LISTED_CLUSTER << " items, pairs not listed\n";
+        continue;
+      }
       std::set<std::pair<std::size_t, std::size_t>> verified_edges;
       for (std::size_t e = 0; e < saved[0].edges.size(); ++e) {
         const auto& edge = saved[0].edges[e];
@@ -1456,6 +1462,10 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
           merges_tsv << w + 1 << "\tnode\t-\t" << post_name(u) << "\t-\t" << post_name(true_label[t_ref][u])
                      << "\t-\t-\n";
         }
+      }
+      if (ref->worst[w].nodes > MAX_LISTED_CLUSTER) {
+        merges_tsv << "# merge " << w + 1 << ": more than " << MAX_LISTED_CLUSTER << " items, pairs not listed\n";
+        continue;
       }
       for (std::size_t s = 0; s < saved.size(); ++s) {
         for (std::size_t e = 0; e < saved[s].edges.size(); ++e) {
