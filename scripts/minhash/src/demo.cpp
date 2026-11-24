@@ -383,6 +383,9 @@ std::size_t min_matches(double t, uint16_t k) {
   if (!(t > 0.0) || t > 1.0) {
     throw std::invalid_argument("threshold must be in (0, 1]");
   }
+  if (k == 0) {
+    throw std::invalid_argument("k must be at least 1");
+  }
   std::size_t m = 0;
   while (static_cast<double>(m) / static_cast<double>(k) < t) {
     ++m;
@@ -411,6 +414,9 @@ std::vector<double> binomial_pmf(double j, std::size_t k) {
 }
 
 std::vector<double> full_band_given_matches(unsigned rows, unsigned bands) {
+  if (rows == 0 || bands == 0) {
+    throw std::invalid_argument("rows and bands must be at least 1");
+  }
   const std::size_t k = static_cast<std::size_t>(rows) * bands;
   std::vector<double> log_fact(k + 1, 0.0);
   for (std::size_t n = 1; n <= k; ++n) {
@@ -458,7 +464,10 @@ std::vector<double> reported_tail(const std::vector<double>& pmf, const std::vec
 
 double reported_probability(double j, unsigned rows, unsigned bands, std::size_t min_matches) {
   const std::size_t k = static_cast<std::size_t>(rows) * bands;
-  return reported_tail(binomial_pmf(j, k), full_band_given_matches(rows, bands)).at(min_matches);
+  if (min_matches > k + 1) {
+    throw std::invalid_argument("min_matches must be at most k + 1");
+  }
+  return reported_tail(binomial_pmf(j, k), full_band_given_matches(rows, bands))[min_matches];
 }
 
 pair_check check_pair_tests(const std::vector<double>& exact, const std::vector<double>& prob,

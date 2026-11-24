@@ -404,6 +404,7 @@ TEST_CASE("min_matches is the smallest m with m / k >= t", "[demo]") {
   REQUIRE(demo::min_matches(0.9, 1024) == 922);
   REQUIRE(demo::min_matches(1.0, 4) == 4);
   REQUIRE_THROWS_AS(demo::min_matches(0.0, 4), std::invalid_argument);
+  REQUIRE_THROWS_AS(demo::min_matches(0.5, 0), std::invalid_argument);
 }
 
 TEST_CASE("binomial_pmf sums to 1 and handles J = 0 and J = 1", "[demo]") {
@@ -427,6 +428,8 @@ TEST_CASE("full_band_given_matches counts the subsets with a full band", "[demo]
   REQUIRE(q[2] == Approx(2.0 / 6).margin(1e-15));
   REQUIRE(q[3] == Approx(1.0).margin(1e-15));
   REQUIRE(q[4] == Approx(1.0).margin(1e-15));
+  REQUIRE_THROWS_AS(demo::full_band_given_matches(0, 2), std::invalid_argument);
+  REQUIRE_THROWS_AS(demo::full_band_given_matches(2, 0), std::invalid_argument);
 }
 
 TEST_CASE("reported_probability is the joint probability, not the product", "[demo]") {
@@ -441,6 +444,8 @@ TEST_CASE("reported_probability is the joint probability, not the product", "[de
   // The product P(candidate) P(Ĵ >= t) = (2 J^2 - J^4)(5/16) = 0.13672 at J = 0.5, which is wrong.
   REQUIRE(demo::reported_probability(0.5, 2, 2, demo::min_matches(0.75, 4)) == Approx(0.3125).margin(1e-14));
   REQUIRE(demo::candidate_probability(0.5, 2, 2) * 0.3125 == Approx(0.13672).margin(1e-5));
+  REQUIRE(demo::reported_probability(0.5, 2, 2, 5) == 0.0);  // m = k + 1: no pair has more than k equal slots
+  REQUIRE_THROWS_AS(demo::reported_probability(0.5, 2, 2, 6), std::invalid_argument);
   // The factorised form equals the dynamic program over the bands with Binomial(r, J) in each band.
   for (const unsigned rows : {2U, 3U, 4U}) {
     for (const double j : {0.05, 0.3, 0.5, 0.8, 0.99}) {
