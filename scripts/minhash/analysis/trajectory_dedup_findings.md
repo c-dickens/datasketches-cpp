@@ -47,6 +47,11 @@ Jaccard on **all 62,334,195 pairs** (no sampling). The tables come from
 5. **For MH-15b:** at its t = 0.40, `action_text_words_w1` joins 1,550 trajectories of 56 issues
    into one component on exact J (ARI 0.10). This item needs t = 0.45, and the useful window is
    narrow (ARI 0.10 at 0.40, 0.92 at 0.45, 0.85 at 0.50).
+6. **Resolved against unresolved (section 8):** inside a task, the trace signals are near chance
+   (the agent's last pytest run passes for 85% of unresolved attempts). The fix content differs:
+   two resolved attempts have patch-line J 0.364, a resolved and an unresolved attempt 0.131.
+   With the fixes of resolved attempts as a reference, the fix items detect the outcome with
+   within-task AUC 0.78.
 
 ## 1. What the traces show
 
@@ -289,6 +294,97 @@ The owner decides. The facts:
   the full run is shorter.
 - The truth for the cluster check can be the issue text, not the instance ID (it differs for
   5 task instances).
+
+## 8. Resolved against unresolved: what differs
+
+Tables: `scripts/minhash/results/trajectory_outcome.md`, written by
+`uv run scripts/minhash/analysis/trajectory_outcome.py` (about 25 seconds). Every task instance
+of the sample has resolved and unresolved trajectories, so each comparison is between attempts
+at the same task, and task difficulty cancels out. Within-task AUC is P(a resolved attempt
+scores higher than an unresolved attempt of the same task). 0.5 is chance.
+
+### The dataset
+
+- Model: `Qwen/Qwen3-Coder-480B-A35B-Instruct`, served with vLLM v0.9.0. Agent: OpenHands
+  v0.54.0. Source: the dataset card of `nebius/SWE-rebench-openhands-trajectories` and its blog
+  post. The traces do not name the model. The tool-call IDs (`chatcmpl-tool-<32 hex>`) have the
+  vLLM format.
+- All 67,074 trajectories have the same system prompt (11,547 characters) and the same tool
+  schema (5 tools). Each assistant turn makes exactly one tool call.
+- The card's "32,161 successful trajectories" is the count of `resolved = 1` in the full data.
+- The card does not give the temperature or the number of attempts per task instance.
+
+### Trace signals are near chance
+
+| Signal | resolved mean | unresolved mean | within-task AUC |
+|---|---|---|---|
+| last pytest run passes | 0.880 | 0.852 | 0.508 |
+| share of pytest runs that fail | 0.228 | 0.242 | 0.478 |
+| pytest run after the last edit | 0.884 | 0.776 | 0.556 |
+| hit the iteration cap | 0.073 | 0.199 | 0.451 |
+| called finish | 0.925 | 0.784 | 0.563 |
+| finish message admits a problem | 0.071 | 0.077 | 0.497 |
+| edits (`str_replace`, `insert`) | 5.36 | 6.35 | 0.468 |
+| failed edits | 0.338 | 0.420 | 0.478 |
+
+The last pytest run of the agent passes for 85% of unresolved attempts. The agent tests its own
+reading of the issue, so a wrong reading passes its own tests. The trace gives no sign that the
+attempt is wrong.
+
+### The fix content differs
+
+Patch lines: MH-E1 `patch_no_new` (changed lines of existing files). Patch files: the existing
+files that the patch changes.
+
+| Pair inside one task | pairs | patch-line J mean | share ≥ 0.8 | patch-file J mean |
+|---|---|---|---|---|
+| resolved – resolved | 26,634 | 0.364 | 0.180 | 0.889 |
+| resolved – unresolved | 21,794 | 0.131 | 0.007 | 0.725 |
+| unresolved – unresolved | 17,077 | 0.209 | 0.077 | 0.758 |
+
+- Correct fixes agree with each other. A wrong fix almost never matches a correct one.
+- Wrong fixes are mostly in the right place: 86% of unresolved patches change a file that
+  another resolved attempt of the task also changes (resolved: 99.6%). 246 unresolved patches
+  (5%) change no existing file.
+- Wrong fixes also agree with each other more than with correct fixes (7.7% near-identical
+  pairs). Some wrong fixes are popular.
+- Label noise is small: 12 of 4,924 unresolved attempts have exactly the changed lines of a
+  resolved attempt of the same task. Example: `M0r13n__pyais-56`. Two unresolved attempts have
+  the same one-line change as the 11 resolved ones. A flaky evaluation is the probable cause.
+
+Examples of a wrong fix in the right file:
+
+- **Incomplete** (`encode__starlette-208`): correct attempts change the signature to
+  `content: typing.Any = None` and return `b""` when `content is None`. Wrong attempts only add
+  the `None` check, so the signature keeps `content: typing.Any`, and `content` stays a required
+  argument.
+- **Too broad** (`stan-dev__pystan-327`): the issue asks to convert numpy integers to `int`.
+  Wrong attempts also convert `np.bool_` and `np.floating`, and so change other behaviour.
+- **Wrong branch** (`fnl__syntok-17`): correct attempts apply the offset −1 for both values of
+  `replace_not_contraction`. Wrong attempts apply it in one branch only.
+- **Side effect** (`celery__billiard-372`): correct attempts only make `ExceptionWithTraceback`
+  inherit from `Exception`. Wrong attempts also call `super().__init__(...)`, which changes the
+  arguments of the exception.
+
+### Can the outcome be detected?
+
+| Score | uses labels of other attempts | within-task AUC |
+|---|---|---|
+| Mean patch-line J to the other attempts of the task (consensus) | no | 0.623 |
+| Nearest resolved attempt minus nearest unresolved attempt (patch-line J) | yes | 0.777 |
+| Fewer changed lines | no | 0.487 |
+
+- With known-good attempts as a reference, the fix items detect the outcome with AUC 0.78. This
+  is a MinHash use: keep an LSH index of the fixes of resolved attempts, and flag a new attempt
+  whose fix is far from all of them.
+- Without labels, the agreement with the other attempts gives AUC 0.62 only, because wrong fixes
+  also agree with each other. The attempt with the highest consensus is resolved in 60.0% of task
+  instances, against 54.9% for a random attempt and 39.0% for the attempt with the lowest
+  consensus.
+- The process items cannot do this: inside a task, the word items do not tell the same fix from
+  another fix (AUC 0.63, section 6 of `results/trajectory_dedup.md`).
+- Not tested: a comparison of each patch with the reference patch of SWE-rebench. This parquet
+  file does not have the reference patch, so it needs a download.
 
 ## Method notes
 
