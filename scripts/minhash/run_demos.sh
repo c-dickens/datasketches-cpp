@@ -48,7 +48,7 @@ if [ "${FULL:-0}" = 1 ]; then
   cache=data/lsh_20news_full_exact_pairs.tsv
   packed=results/lsh_20news_full_exact_pairs.tsv.gz
   if [ ! -f "$cache" ] && [ -f "$packed" ]; then
-    gunzip -c "$packed" > "$cache"
+    gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
   fi
   build/lsh_20news_full data/20_newsgroups results
   gzip -9nc "$cache" > "$packed"

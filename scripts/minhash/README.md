@@ -179,7 +179,8 @@ The speed of LSH against exact all-pairs is in MH-15, not here.
 
 ```bash
 FULL=1 ./run_demos.sh
-build/lsh_20news_full [--smoke] data/20_newsgroups results
+build/lsh_20news_full data/20_newsgroups results
+build/lsh_20news_full --smoke data/20_newsgroups results/smoke
 ```
 
 `./run_demos.sh` runs this demo only when `FULL=1` is set. It compares the
@@ -194,10 +195,12 @@ candidate with Ĵ ≥ t. It writes these files, which are committed:
 - `results/lsh_20news_full_clusters.tsv`: the LSH clusters against the true
   clusters (the components of the true pairs) at each grid point.
 - `results/lsh_20news_full_estimates.tsv`: the error of Ĵ for each k.
-- `results/lsh_20news_full.md`: the summary, with the last line
-  `Overall: PASS` or `Overall: FAIL`.
-- `results/lsh_20news_full.svg`: the precision–recall curves, from
-  `plots/lsh_20news_full.py`.
+- `results/lsh_20news_full.md`: the summary, with the figures and the last
+  line `Overall: PASS` or `Overall: FAIL`.
+- `results/lsh_20news_full_*.svg`: the 5 figures of the summary, from
+  `plots/lsh_20news_full.py`: the pair and cluster precision–recall curves,
+  a table of colour of recall and precision, the counts against the theory,
+  and the estimate error against k.
 - `results/lsh_20news_full_exact_pairs.tsv.gz`: the exact-pair cache (below).
 
 `Overall: PASS` needs 3 checks:
@@ -221,12 +224,14 @@ pair with J > 0 as (i, j, |A ∩ B|, |A ∪ B|), with i and j in `load_posts`
 order, in `data/lsh_20news_full_exact_pairs.tsv`. Its header holds the
 SHA-256 of the archive, the shingle width and the indexed post count. The
 program loads the cache when the header matches. Otherwise it runs the exact
-pass again and writes a new cache. `run_demos.sh` unpacks the committed
+pass again and writes a new cache. It also checks each loaded pair against
+`news20::jaccard`, and stops if one differs. `run_demos.sh` unpacks the committed
 `.tsv.gz` into `data/` when the cache is missing, and it compresses the cache
 into `results/` again (`gzip -9n`) after the run.
 
 **Smoke run.** `--smoke` uses only the 2,000 posts of the MinHash demo sample,
-with its own cache, and writes to `results/smoke/`, which git ignores. It
+with its own cache. Write its results to `results/smoke/`, which git ignores,
+because the program writes to the directory that you give it. It
 takes about 15 seconds.
 
 ## Band-key test vectors

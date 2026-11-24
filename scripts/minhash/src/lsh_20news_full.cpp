@@ -285,9 +285,15 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
     if (u >= n || v >= n) {
       throw std::runtime_error("the cache has a post that is not indexed");
     }
+    const double j = static_cast<double>(p.intersection) / static_cast<double>(p.union_size);
+    // The header does not identify the shingling code, so check each loaded pair against it.
+    if (loaded && news20::jaccard(sets[u], sets[v]) != j) {
+      throw std::runtime_error("the cache does not match news20::jaccard; delete " + cache.string() +
+                               " to run the exact pass again");
+    }
     pair_index.emplace(static_cast<uint64_t>(u) * n + v, pair_nodes.size());
     pair_nodes.emplace_back(u, v);
-    exact_j.push_back(static_cast<double>(p.intersection) / static_cast<double>(p.union_size));
+    exact_j.push_back(j);
   }
 
   // Cross-posts: the pairs of indexed posts that share a Message-ID.
@@ -539,7 +545,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
      << (smoke ? " (smoke run)" : "") << "\n\n";
   md << "Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-14b. The tables for every "
         "grid point are in `lsh_20news_full_pairs.tsv`, `lsh_20news_full_clusters.tsv` and "
-        "`lsh_20news_full_estimates.tsv`, and the plot is `lsh_20news_full.svg`.\n\n";
+        "`lsh_20news_full_estimates.tsv`. `plots/lsh_20news_full.py` draws the figures from them.\n\n";
   md << "## Data\n\n";
   md << "- posts: " << chosen.size() << (smoke ? " (the MH-8 sample)" : "") << "\n";
   md << "- indexed posts (at least one shingle of " << news20::SHINGLE_WORDS << " words): " << n << "\n";
@@ -574,6 +580,10 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "when p ≥ "
      << general(demo::FULL_ALPHA) << " / " << 2 * grid.size() << " = " << general(test_alpha)
      << ", so a correct index fails some test with a probability of at most " << general(demo::FULL_ALPHA) << ".\n\n";
+  md << "![Measured counts against the theory, and all p-values](lsh_20news_full_theory.svg)\n\n";
+  md << "How to read it: on the left, each dot is one count at one grid point. A dot on the line means that the "
+        "measured count equals the theory. On the right, the p-values of all tests are sorted. A test fails only "
+        "below the red line.\n\n";
   if (pair_failed > 0) {
     md << "| k | r | t | recall p | precision p |\n|---:|---:|---:|---:|---:|\n";
     for (const auto& g : results) {
@@ -614,6 +624,12 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "\n";
 
   md << "## Pair recall and precision at each grid point\n\n";
+  md << "![Recall and precision at every grid point](lsh_20news_full_heatmap.svg)\n\n";
+  md << "How to read it: each row is one (k, b × r), and each column is one t. Bright cells are near 1, and bold "
+        "values are at least 0.95. Recall rises and precision falls as r gets smaller.\n\n";
+  md << "![Precision against recall for each k](lsh_20news_full_pr.svg)\n\n";
+  md << "How to read it: one panel for each k, and one curve for each r. Each curve runs from t = 0.3 to t = 0.9. "
+        "The dotted lines mark 0.95, so a point in the top-right corner meets the target of a recommended k.\n\n";
   md << "Each cell is recall / precision. A FAIL marks a failed pair check.\n\n| k | b × r |";
   for (const double t : demo::FULL_THRESHOLDS) {
     md << " t = " << fixed(t, 1) << " |";
@@ -637,6 +653,10 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "## Estimate error\n\n";
   md << "On the stored pairs with exact J ≥ " << fixed(demo::ESTIMATE_MIN_J, 1)
      << ". The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.\n\n";
+  md << "![Estimate error against k](lsh_20news_full_estimates.svg)\n\n";
+  md << "How to read it: on the left, the measured RMSE (blue) lies on the theory (orange), and it halves when k "
+        "grows 4 times. The bias (green) is much smaller than the RMSE. On the right, the ratio is near 1 at every "
+        "k.\n\n";
   md << "| k | pairs | mean error | RMSE | RMS theory SD | ratio |\n|---:|---:|---:|---:|---:|---:|\n";
   for (const auto& e : estimates) {
     md << "| " << e.k << " | " << e.pairs << " | " << fixed(e.mean_error, 6) << " | " << fixed(e.rmse, 6) << " | "
@@ -655,6 +675,9 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "Co-membership: a pair of posts is in one cluster. A post alone counts as a component of its own, so a merge "
         "can join a true cluster and a post that is in no true cluster. All grid points are in "
         "`lsh_20news_full_clusters.tsv`.\n\n";
+  md << "![Cluster precision against recall for each k](lsh_20news_full_clusters.svg)\n\n";
+  md << "How to read it: as the pair figure, but for pairs of posts in one cluster of `get_duplicate_clusters()` "
+        "against pairs in one true cluster.\n\n";
   if (ref != nullptr) {
     const auto& cm = ref->clusters;
     md << "- LSH clusters: " << cm.lsh_clusters << "; true clusters: " << cm.true_clusters << "\n";
