@@ -21,7 +21,7 @@
 # ///
 
 # The figures of the full-data LSH check on 20 Newsgroups (MH-14b). results/lsh_20news_full.md shows them.
-#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 6 lsh_20news_full_*.svg files
+#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 8 lsh_20news_full_*.svg files
 #   uvx marimo edit plots/lsh_20news_full.py           opens the notebook
 
 import marimo
@@ -53,11 +53,13 @@ def _():
     estimates = pd.read_csv(results_dir / "lsh_20news_full_estimates.tsv", sep="\t", comment="#")
     clusters = pd.read_csv(results_dir / "lsh_20news_full_clusters.tsv", sep="\t", comment="#")
     merges = pd.read_csv(results_dir / "lsh_20news_full_merges.tsv", sep="\t", comment="#")
+    bands = pd.read_csv(results_dir / "lsh_20news_full_bands.tsv", sep="\t", comment="#")
+    samples = pd.read_csv(results_dir / "lsh_20news_full_sample_clusters.tsv", sep="\t", comment="#")
     threshold = float(next(line for line in (results_dir / "lsh_20news_full_merges.tsv").read_text().splitlines()
                            if line.startswith("# threshold=")).split("=")[1])
     test_alpha = float(next(line for line in (results_dir / "lsh_20news_full_pairs.tsv").read_text().splitlines()
                             if line.startswith("# test_alpha=")).split("=")[1])
-    return LICENCE, clusters, estimates, merges, mo, pairs, plt, results_dir, test_alpha, threshold
+    return LICENCE, bands, clusters, estimates, merges, mo, pairs, plt, results_dir, samples, test_alpha, threshold
 
 
 @app.cell
@@ -276,6 +278,98 @@ def _(merges, plt, save_svg, threshold):
         return save_svg(fig, "lsh_20news_full_merges.svg")
 
     _merges()
+    return
+
+
+@app.cell
+def _(bands, plt, save_svg):
+    REF = {"K": 128, "R": 4, "T": 0.5}  # the MH-14 setting
+
+    def _bands():
+        """The verified rate of each J band at the MH-14 setting, measured against the theory."""
+        d = bands[(bands["K"] == REF["K"]) & (bands["R"] == REF["R"]) & (bands["T"] == REF["T"])]
+        d = d[d["Pairs"] > 0]
+        middle = (d["BandLo"] + d["BandHi"]) / 2
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        for ax, log in zip(axes, [False, True]):
+            shown = d["VerifiedRate"] > 0 if log else d["VerifiedRate"] >= 0
+            ax.plot(middle, d["ExpectedRate"], "-", color="#ff7f0e", label="expected: mean P(verified | J) in the band")
+            ax.plot(middle[shown], d.loc[shown, "VerifiedRate"], "o", color="#1f77b4", label="measured verified rate")
+            ax.axvline(REF["T"], color="#555555", linestyle=":", linewidth=1)
+            ax.set_xlabel("J band (midpoint)")
+            ax.set_xticks([x / 10 for x in range(11)])
+            if log:
+                ax.set_yscale("log")
+                ax.set_title("the same, log scale")
+            else:
+                ax.set_ylim(-0.02, 1.02)
+                ax.set_title("verified rate for each J band")
+                ax.set_ylabel("verified rate")
+                ax.legend(fontsize=8, loc="upper left")
+        b = REF["K"] // REF["R"]
+        fig.suptitle(f"Pairs with J > 0 at k = {REF['K']}, {b} × {REF['R']}, t = {REF['T']}: left of the dotted line "
+                     "the rate is the false-verify rate, right of it the recall")
+        fig.tight_layout()
+        return save_svg(fig, "lsh_20news_full_bands.svg")
+
+    _bands()
+    return
+
+
+@app.cell
+def _(plt, samples, save_svg, threshold):
+    import math as _math
+
+    def _samples():
+        """A random sample of LSH clusters as graphs: verified pairs solid, missed true pairs dashed."""
+        ids = sorted(samples["Sample"].unique())
+        if not ids:
+            return None
+        columns = 4
+        rows = (len(ids) + columns - 1) // columns
+        fig, axes = plt.subplots(rows, columns, figsize=(3.4 * columns, 3.5 * rows), squeeze=False)
+        palette = plt.get_cmap("tab10")
+        for ax in axes.flat:
+            ax.axis("off")
+        for ax, s in zip(axes.flat, ids):
+            nodes = samples[(samples["Sample"] == s) & (samples["Kind"] == "node")].sort_values(["TrueCluster", "Post"])
+            names = list(nodes["Post"])
+            pos = {name: (_math.cos(2 * _math.pi * i / len(names)), _math.sin(2 * _math.pi * i / len(names)))
+                   for i, name in enumerate(names)}
+            true_clusters = [c for c in dict.fromkeys(nodes["TrueCluster"]) if c != "-"]
+            colour_of = {c: palette(i % 10) for i, c in enumerate(true_clusters)}
+            edges = samples[(samples["Sample"] == s) & (samples["Kind"] != "node")]
+            for _, e in edges.iterrows():
+                (x1, y1), (x2, y2) = pos[e["Post"]], pos[e["Other"]]
+                missed = e["Kind"] == "missed"
+                false_link = float(e["ExactJ"]) < threshold
+                ax.plot([x1, x2], [y1, y2], linestyle="--" if missed else "-",
+                        color="#1f77b4" if missed else ("#d62728" if false_link else "#999999"),
+                        linewidth=1.2 if missed or false_link else 0.8, zorder=1)
+                if false_link and len(names) <= 12:
+                    ax.text((x1 + x2) / 2, (y1 + y2) / 2, f"{float(e['ExactJ']):.2f}", fontsize=6, color="#d62728",
+                            ha="center", va="center", bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.3})
+            for name in names:
+                cluster = nodes.loc[nodes["Post"] == name, "TrueCluster"].iloc[0]
+                ax.scatter(*pos[name], s=45, color=colour_of.get(cluster, "#bbbbbb"), edgecolor="black",
+                           linewidth=0.5, zorder=2)
+            verified = int((edges["Kind"] == "verified").sum())
+            false_links = int(((edges["Kind"] == "verified") & (edges["ExactJ"].astype(float) < threshold)).sum())
+            missed = int((edges["Kind"] == "missed").sum())
+            parts = len(true_clusters) + int((nodes["TrueCluster"] == "-").sum())
+            ax.set_title(f"cluster {s}: {len(names)} posts, {parts} true part{'s' if parts > 1 else ''}\n"
+                         f"{verified} verified ({false_links} false), {missed} missed", fontsize=8)
+            ax.set_xlim(-1.3, 1.3)
+            ax.set_ylim(-1.3, 1.3)
+            ax.set_aspect("equal")
+            ax.axis("off")
+        fig.suptitle(f"A random sample of LSH clusters at k = 128, 32 × 4, t = {threshold:.1f}\n"
+                     "dots: posts (colour = true cluster, grey = none); grey line: verified true pair; red: verified "
+                     "false pair (J < t); blue dashed: true pair that LSH did not verify", fontsize=9)
+        fig.tight_layout()
+        return save_svg(fig, "lsh_20news_full_sample_clusters.svg")
+
+    _samples()
     return
 
 

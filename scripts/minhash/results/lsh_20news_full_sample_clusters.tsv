@@ -1,0 +1,114 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ticket=MH-14b
+# smoke=0
+# indexed_posts=19925
+# pairs_j_gt_0=581369
+# family_alpha=1e-06
+# test_alpha=3.57e-09
+# threshold=0.5
+Sample	Kind	Post	Other	TrueCluster	ExactJ	EstimatedJ
+1	node	comp.sys.mac.hardware/51494	-	-	-	-
+1	node	comp.sys.mac.hardware/51743	-	comp.sys.mac.hardware/51743	-	-
+1	node	comp.sys.mac.hardware/51820	-	comp.sys.mac.hardware/51743	-	-
+1	verified	comp.sys.mac.hardware/51494	comp.sys.mac.hardware/51743	-	0.4867	0.5078
+1	verified	comp.sys.mac.hardware/51743	comp.sys.mac.hardware/51820	-	0.8010	0.8281
+2	node	comp.windows.x/67123	-	comp.windows.x/67123	-	-
+2	node	comp.windows.x/67138	-	comp.windows.x/67123	-	-
+2	node	comp.windows.x/67560	-	comp.windows.x/67123	-	-
+2	verified	comp.windows.x/67123	comp.windows.x/67138	-	0.7126	0.7266
+2	verified	comp.windows.x/67123	comp.windows.x/67560	-	0.5382	0.5547
+2	verified	comp.windows.x/67138	comp.windows.x/67560	-	0.6202	0.6484
+3	node	comp.os.ms-windows.misc/9571	-	comp.os.ms-windows.misc/9571	-	-
+3	node	comp.os.ms-windows.misc/9597	-	comp.os.ms-windows.misc/9571	-	-
+3	node	comp.os.ms-windows.misc/9618	-	comp.os.ms-windows.misc/9571	-	-
+3	verified	comp.os.ms-windows.misc/9571	comp.os.ms-windows.misc/9597	-	0.6304	0.5938
+3	verified	comp.os.ms-windows.misc/9571	comp.os.ms-windows.misc/9618	-	0.6304	0.5625
+4	node	talk.politics.mideast/76187	-	talk.politics.mideast/76187	-	-
+4	node	talk.politics.mideast/77223	-	-	-	-
+4	node	talk.politics.mideast/77394	-	talk.politics.mideast/76187	-	-
+4	verified	talk.politics.mideast/76187	talk.politics.mideast/77223	-	0.4841	0.5469
+4	verified	talk.politics.mideast/76187	talk.politics.mideast/77394	-	0.8644	0.8672
+5	node	rec.autos/103231	-	rec.autos/103231	-	-
+5	node	rec.autos/103325	-	rec.autos/103231	-	-
+5	node	rec.autos/103769	-	rec.autos/103231	-	-
+5	verified	rec.autos/103231	rec.autos/103325	-	0.7360	0.8125
+5	verified	rec.autos/103231	rec.autos/103769	-	0.5576	0.6172
+5	verified	rec.autos/103325	rec.autos/103769	-	0.5344	0.6094
+6	node	misc.forsale/76190	-	misc.forsale/76190	-	-
+6	node	misc.forsale/76557	-	misc.forsale/76190	-	-
+6	node	misc.forsale/76589	-	misc.forsale/76190	-	-
+6	verified	misc.forsale/76190	misc.forsale/76557	-	0.8083	0.8203
+6	verified	misc.forsale/76190	misc.forsale/76589	-	0.8230	0.8516
+6	verified	misc.forsale/76557	misc.forsale/76589	-	0.8115	0.8359
+7	node	sci.electronics/53647	-	sci.electronics/53647	-	-
+7	node	sci.electronics/53717	-	sci.electronics/53647	-	-
+7	node	sci.electronics/53727	-	sci.electronics/53647	-	-
+7	node	sci.electronics/53754	-	sci.electronics/53647	-	-
+7	verified	sci.electronics/53647	sci.electronics/53717	-	0.5923	0.6094
+7	verified	sci.electronics/53647	sci.electronics/53727	-	0.8211	0.8281
+7	verified	sci.electronics/53647	sci.electronics/53754	-	0.6638	0.5781
+7	verified	sci.electronics/53717	sci.electronics/53727	-	0.6000	0.6172
+7	verified	sci.electronics/53727	sci.electronics/53754	-	0.6667	0.5859
+7	missed	sci.electronics/53717	sci.electronics/53754	-	0.5169	-
+8	node	talk.religion.misc/84075	-	talk.religion.misc/84075	-	-
+8	node	talk.religion.misc/84214	-	talk.religion.misc/84075	-	-
+8	node	talk.religion.misc/84272	-	-	-	-
+8	verified	talk.religion.misc/84075	talk.religion.misc/84214	-	0.5766	0.5781
+8	verified	talk.religion.misc/84075	talk.religion.misc/84272	-	0.4887	0.5469
+9	node	talk.religion.misc/83905	-	talk.religion.misc/83905	-	-
+9	node	talk.religion.misc/84085	-	talk.religion.misc/83905	-	-
+9	node	talk.religion.misc/84273	-	-	-	-
+9	verified	talk.religion.misc/83905	talk.religion.misc/84085	-	0.6311	0.7109
+9	verified	talk.religion.misc/83905	talk.religion.misc/84273	-	0.4934	0.5000
+10	node	talk.politics.guns/54336	-	talk.politics.guns/54336	-	-
+10	node	talk.politics.guns/54340	-	talk.politics.guns/54336	-	-
+10	node	talk.politics.guns/54349	-	talk.politics.guns/54336	-	-
+10	node	talk.politics.guns/54395	-	talk.politics.guns/54336	-	-
+10	node	talk.politics.guns/54406	-	talk.politics.guns/54336	-	-
+10	verified	talk.politics.guns/54336	talk.politics.guns/54340	-	0.7565	0.7891
+10	verified	talk.politics.guns/54336	talk.politics.guns/54349	-	0.8836	0.9062
+10	verified	talk.politics.guns/54336	talk.politics.guns/54395	-	0.7118	0.7344
+10	verified	talk.politics.guns/54336	talk.politics.guns/54406	-	0.8650	0.9062
+10	verified	talk.politics.guns/54340	talk.politics.guns/54349	-	0.7774	0.8203
+10	verified	talk.politics.guns/54340	talk.politics.guns/54395	-	0.6490	0.6797
+10	verified	talk.politics.guns/54340	talk.politics.guns/54406	-	0.6766	0.7344
+10	verified	talk.politics.guns/54349	talk.politics.guns/54395	-	0.7333	0.7656
+10	verified	talk.politics.guns/54349	talk.politics.guns/54406	-	0.7765	0.8359
+10	verified	talk.politics.guns/54395	talk.politics.guns/54406	-	0.6406	0.6797
+11	node	talk.politics.guns/54620	-	talk.politics.guns/54620	-	-
+11	node	talk.politics.guns/55238	-	talk.politics.guns/54620	-	-
+11	node	talk.politics.guns/55258	-	talk.politics.guns/54620	-	-
+11	verified	talk.politics.guns/54620	talk.politics.guns/55238	-	0.5091	0.5234
+11	verified	talk.politics.guns/55238	talk.politics.guns/55258	-	0.5883	0.6016
+12	node	talk.politics.guns/54335	-	talk.politics.guns/54335	-	-
+12	node	talk.politics.guns/54396	-	talk.politics.guns/54335	-	-
+12	node	talk.politics.guns/54465	-	talk.politics.guns/54465	-	-
+12	node	talk.religion.misc/83676	-	talk.politics.guns/54335	-	-
+12	node	talk.religion.misc/83721	-	talk.politics.guns/54335	-	-
+12	node	talk.religion.misc/83806	-	talk.politics.guns/54465	-	-
+12	verified	talk.politics.guns/54335	talk.politics.guns/54396	-	0.5894	0.6172
+12	verified	talk.politics.guns/54335	talk.religion.misc/83676	-	1.0000	1.0000
+12	verified	talk.politics.guns/54335	talk.religion.misc/83721	-	0.5894	0.6172
+12	verified	talk.politics.guns/54396	talk.politics.guns/54465	-	0.4273	0.5078
+12	verified	talk.politics.guns/54396	talk.religion.misc/83676	-	0.5894	0.6172
+12	verified	talk.politics.guns/54396	talk.religion.misc/83721	-	1.0000	1.0000
+12	verified	talk.politics.guns/54396	talk.religion.misc/83806	-	0.4273	0.5078
+12	verified	talk.politics.guns/54465	talk.religion.misc/83721	-	0.4273	0.5078
+12	verified	talk.politics.guns/54465	talk.religion.misc/83806	-	1.0000	1.0000
+12	verified	talk.religion.misc/83676	talk.religion.misc/83721	-	0.5894	0.6172
+12	verified	talk.religion.misc/83721	talk.religion.misc/83806	-	0.4273	0.5078

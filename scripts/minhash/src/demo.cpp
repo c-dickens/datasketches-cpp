@@ -27,6 +27,7 @@
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 
 #include "xxhash64.h"
 
@@ -684,6 +685,40 @@ void write_exact_pairs(std::ostream& out, const std::string& header, const std::
   for (const auto& p : pairs) {
     out << p.i << '\t' << p.j << '\t' << p.intersection << '\t' << p.union_size << '\n';
   }
+}
+
+std::array<band_rate, NUM_BINS> band_rates(const std::vector<double>& exact, const std::vector<double>& prob,
+                                           const std::vector<bool>& verified) {
+  if (exact.size() != prob.size() || exact.size() != verified.size()) {
+    throw std::invalid_argument("exact, prob and verified differ in size");
+  }
+  std::array<band_rate, NUM_BINS> bands{};
+  for (std::size_t i = 0; i < exact.size(); ++i) {
+    if (exact[i] > 0.0) {
+      auto& b = bands[jaccard_bin(exact[i])];
+      ++b.pairs;
+      b.verified += verified[i] ? 1 : 0;
+      b.expected += prob[i];
+    }
+  }
+  return bands;
+}
+
+std::vector<std::size_t> smallest_hashes(const std::vector<std::size_t>& keys, std::size_t count, uint64_t seed) {
+  std::vector<std::tuple<uint64_t, std::size_t, std::size_t>> keyed;  // (hash, key, position)
+  keyed.reserve(keys.size());
+  for (std::size_t p = 0; p < keys.size(); ++p) {
+    const auto value = static_cast<uint64_t>(keys[p]);
+    keyed.emplace_back(XXHash64::hash(&value, sizeof(value), seed), keys[p], p);
+  }
+  std::sort(keyed.begin(), keyed.end());
+  keyed.resize(std::min(count, keyed.size()));
+  std::vector<std::size_t> positions;
+  positions.reserve(keyed.size());
+  for (const auto& k : keyed) {
+    positions.push_back(std::get<2>(k));
+  }
+  return positions;
 }
 
 bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs) {

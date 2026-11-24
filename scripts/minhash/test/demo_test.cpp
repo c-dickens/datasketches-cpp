@@ -542,3 +542,39 @@ TEST_CASE("the exact-pair cache refuses a wrong header", "[demo]") {
   std::stringstream no_count(header + "0\t1\t2\t5\n");
   REQUIRE_THROWS_AS(demo::read_exact_pairs(no_count, header, read), std::runtime_error);
 }
+
+TEST_CASE("band_rates counts the pairs of each J band", "[demo]") {
+  // Bands: 0.05 and 0.07 -> [0.0, 0.1); 0.55 -> [0.5, 0.6); 1.0 -> the last band; J = 0 is left out.
+  const std::vector<double> exact{0.05, 0.07, 0.55, 1.0, 0.0};
+  const std::vector<double> prob{0.01, 0.02, 0.6, 1.0, 0.0};
+  const std::vector<bool> verified{false, true, true, true, true};
+  const auto bands = demo::band_rates(exact, prob, verified);
+  REQUIRE(bands[0].pairs == 2);
+  REQUIRE(bands[0].verified == 1);
+  REQUIRE(bands[0].expected == Approx(0.03).margin(1e-15));
+  REQUIRE(bands[5].pairs == 1);
+  REQUIRE(bands[5].verified == 1);
+  REQUIRE(bands[9].pairs == 1);
+  std::size_t total = 0;
+  for (const auto& b : bands) {
+    total += b.pairs;
+  }
+  REQUIRE(total == 4);
+  REQUIRE_THROWS_AS(demo::band_rates(exact, prob, {true}), std::invalid_argument);
+}
+
+TEST_CASE("smallest_hashes chooses the keys with the smallest hash", "[demo]") {
+  // For keys 0 .. n - 1 it chooses the same indices as sample_indices.
+  std::vector<std::size_t> keys(100);
+  for (std::size_t i = 0; i < keys.size(); ++i) {
+    keys[i] = i;
+  }
+  auto chosen = demo::smallest_hashes(keys, 12, 1);
+  REQUIRE(chosen.size() == 12);
+  std::sort(chosen.begin(), chosen.end());
+  REQUIRE(chosen == demo::sample_indices(100, 12, 1));
+  // Positions, not keys, come back; fewer keys than count gives all of them.
+  const auto few = demo::smallest_hashes({500, 7}, 12, 1);
+  REQUIRE(few.size() == 2);
+  REQUIRE(std::set<std::size_t>(few.begin(), few.end()) == std::set<std::size_t>{0, 1});
+}

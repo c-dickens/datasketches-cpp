@@ -194,6 +194,8 @@ constexpr double FULL_TARGET = 0.95;          // the recall and precision of a r
 constexpr double ESTIMATE_MIN_J = 0.1;        // the estimate error uses the pairs with exact J >= this
 constexpr std::size_t MAX_EXACT_PAIRS = 50000000;
 constexpr std::size_t WORST_MERGES = 5;
+constexpr std::size_t SAMPLE_CLUSTERS = 12;          // LSH clusters drawn at random for the report
+constexpr std::size_t SAMPLE_CLUSTER_MIN_SIZE = 3;   // only clusters with at least this many items
 
 struct grid_point {
   uint16_t k;
@@ -313,6 +315,24 @@ void write_exact_pairs(std::ostream& out, const std::string& header, const std::
 /// header is not `header`. Throws std::runtime_error on a malformed line, or if the number of pair
 /// lines is not the "# pairs=N" of the file (for example, a truncated file).
 bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs);
+
+/// The verified pairs of one J band (report only).
+struct band_rate {
+  std::size_t pairs = 0;
+  std::size_t verified = 0;
+  double expected = 0.0;  // sum of P(verified | J) over the pairs of the band
+};
+
+/// The pairs with J > 0 in NUM_BINS bands of width 0.1, by jaccard_bin (J = 1 is in the last band).
+/// exact[i], prob[i] and verified[i] describe pair i. Pairs with J = 0 are left out.
+/// Throws std::invalid_argument if the sizes differ.
+std::array<band_rate, NUM_BINS> band_rates(const std::vector<double>& exact, const std::vector<double>& prob,
+                                           const std::vector<bool>& verified);
+
+/// The positions of the `count` keys with the smallest XXHash64::hash(&key, 8, seed), with each key as
+/// uint64_t, ties by key, in that order. All positions if there are fewer keys. For keys 0 .. n - 1,
+/// the positions are those of sample_indices(n, count, seed).
+std::vector<std::size_t> smallest_hashes(const std::vector<std::size_t>& keys, std::size_t count, uint64_t seed);
 
 }  // namespace demo
 
