@@ -19,6 +19,8 @@
 #
 # The one command that runs every MinHash demo: it gets the data, builds the
 # demos, and runs them. Later tickets add their demos here.
+# FULL=1 also runs the full-data LSH check (MH-14b), which takes about 15 minutes
+# without its exact-pair cache.
 
 set -euo pipefail
 
@@ -40,3 +42,15 @@ build/minhash_20news data/20_newsgroups results/minhash_20news.md
 
 echo "== 20 Newsgroups: LSH correctness =="
 build/lsh_20news data/20_newsgroups results/lsh_20news.md
+
+if [ "${FULL:-0}" = 1 ]; then
+  echo "== 20 Newsgroups: full-data LSH check =="
+  cache=data/lsh_20news_full_exact_pairs.tsv
+  packed=results/lsh_20news_full_exact_pairs.tsv.gz
+  if [ ! -f "$cache" ] && [ -f "$packed" ]; then
+    gunzip -c "$packed" > "$cache"
+  fi
+  build/lsh_20news_full data/20_newsgroups results
+  gzip -9nc "$cache" > "$packed"
+  uv run plots/lsh_20news_full.py results
+fi

@@ -29,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iosfwd>
 #include <string>
 #include <utility>
 #include <vector>
@@ -181,6 +182,128 @@ struct bucket {
 /// The `count` largest buckets: by size (descending), then band, then key.
 /// keys_per_item[i] is band_keys of item i. An empty list means that item i is not indexed.
 std::vector<bucket> largest_buckets(const std::vector<std::vector<uint64_t>>& keys_per_item, std::size_t count);
+
+// Full-data check (MH-14b): the sketch and the LSH clusters against the exact Jaccard of every pair.
+// MH-15 uses these names too.
+
+constexpr std::array<uint16_t, 5> FULL_K_VALUES = {64, 128, 256, 512, 1024};
+constexpr std::array<unsigned, 4> FULL_ROWS = {2, 4, 8, 16};
+constexpr std::array<double, 7> FULL_THRESHOLDS = {0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9};
+constexpr double FULL_ALPHA = 1e-6;           // false-FAIL rate of all the pair tests (Bonferroni)
+constexpr double FULL_TARGET = 0.95;          // the recall and precision of a recommended k
+constexpr double ESTIMATE_MIN_J = 0.1;        // the estimate error uses the pairs with exact J >= this
+constexpr std::size_t MAX_EXACT_PAIRS = 50000000;
+constexpr std::size_t WORST_MERGES = 5;
+
+struct grid_point {
+  uint16_t k;
+  unsigned rows;
+  unsigned bands;  // k / rows
+  double threshold;
+};
+
+/// Every (k, r, t) of FULL_K_VALUES x FULL_ROWS x FULL_THRESHOLDS, in that order (140 points).
+std::vector<grid_point> full_grid();
+
+/// The smallest m with m / k >= t, compared in double as minhash_sketch::jaccard() is.
+/// Ĵ >= t exactly when the signatures are equal in at least m slots. t is in (0, 1].
+std::size_t min_matches(double t, uint16_t k);
+
+/// pmf[s] = P(Binomial(k, j) = s), for s in [0, k].
+std::vector<double> binomial_pmf(double j, std::size_t k);
+
+/// q[s] = P(some band has all its `rows` slots equal | exactly s of the k = rows * bands slots are
+/// equal), for s in [0, k]. Given s, the equal slots are a uniform s-subset, because the slots are
+/// independent and have the same J. A dynamic program over the bands, with a hypergeometric count
+/// in each band.
+std::vector<double> full_band_given_matches(unsigned rows, unsigned bands);
+
+/// tail[m] = sum over s >= m of pmf[s] q[s], for m in [0, k + 1]: P(some band is all-equal AND at
+/// least m slots are equal). This is the joint probability that a pair is reported, not the product
+/// of P(candidate) and P(Ĵ >= t), which use the same slots.
+std::vector<double> reported_tail(const std::vector<double>& pmf, const std::vector<double>& q);
+
+/// P(reported | J): reported_tail(binomial_pmf(j, k), full_band_given_matches(rows, bands))[m].
+double reported_probability(double j, unsigned rows, unsigned bands, std::size_t min_matches);
+
+/// The two pair tests of one grid point. The tested pairs are the true pairs (exact J >= t) for
+/// recall, and the pairs with 0 < J < t for precision. A pair with J = 0 has probability 0.
+struct pair_check {
+  pair_counts counts;        // similar: J >= t; verified: reported
+  std::size_t false_pairs;   // pairs with 0 < J < t
+  double expected_true;      // sum of P(reported | J) over the true pairs
+  double expected_false;     // sum of P(reported | J) over the pairs with 0 < J < t
+  double p_recall;           // poisson_binomial_p_value of counts.both
+  double p_precision;        // poisson_binomial_p_value of counts.verified - counts.both
+  bool pass;                 // both p-values >= test_alpha
+};
+
+/// exact[i], prob[i] and reported[i] describe pair i, for every pair with J > 0. reported_disjoint
+/// is the number of reported pairs with J = 0. Each p-value passes when it is >= test_alpha.
+pair_check check_pair_tests(const std::vector<double>& exact, const std::vector<double>& prob,
+                            const std::vector<bool>& reported, std::size_t reported_disjoint, double t,
+                            double test_alpha);
+
+using edge_list = std::vector<std::pair<std::size_t, std::size_t>>;
+
+/// The connected components of the graph on the nodes [0, n): label[i] is the smallest node of the
+/// component of i. Throws std::invalid_argument if an edge has a node >= n.
+std::vector<std::size_t> components(std::size_t n, const edge_list& edges);
+
+/// The clusters (components of 2 or more nodes), each sorted, ordered by their smallest node.
+std::vector<std::vector<std::size_t>> clusters_of(const std::vector<std::size_t>& label);
+
+/// LSH clusters against true clusters. Both labels come from components() on the same nodes.
+/// A node alone in its component counts as a component of its own, so a merge can join a true
+/// cluster and a node that is in no true cluster.
+struct cluster_metrics {
+  std::size_t lsh_clusters = 0;   // LSH components with 2 or more nodes
+  std::size_t true_clusters = 0;  // true components with 2 or more nodes
+  std::size_t lsh_pairs = 0;      // node pairs in one LSH component
+  std::size_t true_pairs = 0;     // node pairs in one true component
+  std::size_t both_pairs = 0;     // node pairs in one LSH component and in one true component
+  std::size_t merges = 0;         // LSH clusters with nodes of 2 or more true components
+  std::size_t splits = 0;         // true clusters with nodes in 2 or more LSH components
+  std::size_t largest_lsh = 0;    // nodes in the largest LSH component (1 if no cluster)
+  std::size_t largest_true = 0;
+};
+
+/// Co-membership precision = both_pairs / lsh_pairs, recall = both_pairs / true_pairs.
+/// Throws std::invalid_argument if the label sizes differ.
+cluster_metrics compare_clusters(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label);
+
+/// One LSH cluster that joins 2 or more true components.
+struct merge_example {
+  std::size_t lsh_root;     // the smallest node of the LSH cluster
+  std::size_t nodes;
+  std::size_t true_parts;   // true components among its nodes
+  std::pair<std::size_t, std::size_t> weakest;  // the edge of the cluster with the lowest exact J
+  double weakest_j;
+};
+
+/// The `count` worst merges: by true_parts (descending), then nodes (descending), then lsh_root.
+/// edges are the LSH edges, and edge_j[e] is the exact J of edge e.
+std::vector<merge_example> worst_merges(const std::vector<std::size_t>& lsh_label,
+                                        const std::vector<std::size_t>& true_label, const edge_list& edges,
+                                        const std::vector<double>& edge_j, std::size_t count);
+
+/// One stored pair of the exact pass: post indices i < j and the sizes of the shingle sets.
+struct exact_pair {
+  std::size_t i;
+  std::size_t j;
+  std::size_t intersection;
+  std::size_t union_size;
+};
+
+/// The header lines of the exact-pair cache. A cache with another header is not used.
+std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts);
+
+/// Writes the header, then one line "i\tj\tintersection\tunion" for each pair.
+void write_exact_pairs(std::ostream& out, const std::string& header, const std::vector<exact_pair>& pairs);
+
+/// Reads a cache that write_exact_pairs wrote. Returns false, and leaves `pairs` empty, if the
+/// header is not `header`. Throws std::runtime_error on a malformed line.
+bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs);
 
 }  // namespace demo
 
