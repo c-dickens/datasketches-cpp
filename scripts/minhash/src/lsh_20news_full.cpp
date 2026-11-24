@@ -226,13 +226,13 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   const fs::path cache = data_dir.parent_path() /
       (smoke ? "lsh_20news_full_exact_pairs_smoke.tsv" : "lsh_20news_full_exact_pairs.tsv");
   const std::string header = demo::exact_pairs_header(ARCHIVE_SHA256, news20::SHINGLE_WORDS, n);
+  const auto exact_start = steady::now();
   std::vector<demo::exact_pair> exact;
   bool loaded = false;
   {
     std::ifstream in(cache, std::ios::binary);
     loaded = in && demo::read_exact_pairs(in, header, exact);
   }
-  const auto exact_start = steady::now();
   if (loaded) {
     std::cout << "exact pairs: loaded " << exact.size() << " from " << cache.string() << "\n";
   } else {
