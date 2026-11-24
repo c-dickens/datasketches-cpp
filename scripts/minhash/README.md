@@ -289,6 +289,10 @@ second public corpus. `demo::full_main` (`src/full_check.cpp`) runs the check
 for both programs. Each program gives it only its data, its names and its
 external check. The files are `results/lsh_reuters_full*`, as in MH-14b, and
 `uv run plots/lsh_20news_full.py results lsh_reuters_full` draws the figures.
+It also draws `results/lsh_reuters_full_bands_compare.svg`: the verified rate
+for each J band of both datasets at k = 128, 32 × 4, t = 0.5. It reads
+`results/lsh_20news_full_bands.tsv`, so `run_demos.sh` runs the Reuters check
+after the 20 Newsgroups check.
 The exact-pair cache is `data/lsh_reuters_full_exact_pairs.tsv`.
 
 Reuters has no `Message-ID`, so the third check is **identical shingle sets**:

@@ -106,8 +106,9 @@ demo::full_source load(const fs::path& data_dir, bool smoke) {
       "![Verified rate for each J band on both datasets](lsh_reuters_full_bands_compare.svg)\n\n"
       "How to read it: the verified rate of each J band at k = 128, 32 × 4, t = 0.5, on 20 Newsgroups (blue, from "
       "`lsh_20news_full_bands.tsv`) and on Reuters-21578 (red). The dots are the measured rates, and the lines are "
-      "the expected rates of each dataset. The verified rate depends only on the J values in a band, so where both "
-      "datasets have many pairs in a band, their rates should agree.\n\n";
+      "the expected rates of each dataset. The 2 expected lines differ a little in the steep bands near t, because the "
+      "mix of J values inside a band differs between the datasets. A band with fewer pairs scatters more around "
+      "its line; the pair counts are in the band tables of both reports.\n\n";
   return src;
 }
 
