@@ -770,6 +770,17 @@ kept_counts compare_kept(const std::vector<std::size_t>& lsh_label, const std::v
     out.wrongly_removed += exact && !lsh ? 1 : 0;
     out.missed_duplicates += lsh && !exact ? 1 : 0;
   }
+  std::vector<std::size_t> lsh_kept_in(true_label.size(), 0);  // LSH-kept items of each true component
+  for (std::size_t i = 0; i < lsh_label.size(); ++i) {
+    lsh_kept_in[true_label[i]] += lsh_label[i] == i ? 1 : 0;
+  }
+  for (std::size_t c = 0; c < true_label.size(); ++c) {
+    if (true_label[c] != c) {
+      continue;  // c is not the label of a true component
+    }
+    out.lost_components += lsh_kept_in[c] == 0 ? 1 : 0;
+    out.extra_kept += lsh_kept_in[c] > 1 ? lsh_kept_in[c] - 1 : 0;
+  }
   return out;
 }
 

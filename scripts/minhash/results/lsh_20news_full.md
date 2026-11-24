@@ -35,7 +35,7 @@ Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-1
 - **Cluster recall:** the co-membership pairs that are in the true clusters and in the LSH clusters ÷ the co-membership pairs of the true clusters. **Cluster precision:** the same count ÷ the co-membership pairs of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a cluster counts every pair that a chain links.
 - **Merge:** an LSH cluster that joins 2 or more true clusters. Here a post in no true cluster counts as a true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.
 - **Index set and query set:** the held-out check splits the indexed posts in two. A post goes to the index set when XXHash64 of its post index (8 bytes, seed 2) is even, and to the query set otherwise. **Cross pair:** a pair with one post in each set. **Query hit rate:** of the queries with at least 1 true cross pair, the share that get at least 1 verified true cross pair.
-- **Kept set:** the posts that deduplication keeps: the smallest post of each cluster, and every post in no cluster. **Wrongly removed:** a post that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a post that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters.
+- **Kept set:** the posts that deduplication keeps: the smallest post of each cluster, and every post in no cluster. **Wrongly removed:** a post that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a post that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters. These compare which post each side keeps. When a merge and a split meet, LSH can keep another post of the same true cluster, so both counts are upper bounds. **Lost true cluster:** a true cluster, or a post in no true cluster, with no post in the LSH kept set: real data loss. **Extra kept:** the LSH-kept posts beyond one for each true cluster that they cover: near-copies really left in.
 
 ## How deduplication works
 
@@ -231,16 +231,16 @@ How to read it: each panel is one LSH cluster. Each dot is a post, coloured by i
 
 The same deduplication runs twice at each grid point: once on the true clusters, and once on the LSH clusters. Each keeps the smallest post of each cluster and every post in no cluster. The comparison shows what LSH costs a downstream task: posts lost by mistake, and near-copies left in. All grid points are in `lsh_20news_full_kept.tsv`.
 
-| setting | k | b × r | t | posts | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate |
-|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MH-14 setting | 128 | 32 × 4 | 0.5 | 19925 | 17875 | 17850 | 163 | 138 | 0.0091 | 0.0673 |
-| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 19925 | 15573 | 15577 | 145 | 149 | 0.0093 | 0.0342 |
-| recommended at t = 0.4 | 512 | 128 × 4 | 0.4 | 19925 | 16939 | 16917 | 99 | 77 | 0.0058 | 0.0258 |
-| recommended at t = 0.5 | 512 | 256 × 2 | 0.5 | 19925 | 17875 | 17886 | 69 | 80 | 0.0039 | 0.0390 |
-| recommended at t = 0.6 | 512 | 256 × 2 | 0.6 | 19925 | 18479 | 18481 | 37 | 39 | 0.0020 | 0.0270 |
-| recommended at t = 0.7 | 256 | 128 × 2 | 0.7 | 19925 | 18876 | 18876 | 38 | 38 | 0.0020 | 0.0362 |
-| recommended at t = 0.8 | 64 | 8 × 8 | 0.8 | 19925 | 19099 | 19092 | 32 | 25 | 0.0017 | 0.0303 |
-| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 19925 | 19206 | 19209 | 7 | 10 | 0.0004 | 0.0139 |
+| setting | k | b × r | t | posts | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate | lost true clusters | extra kept |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 19925 | 17875 | 17850 | 163 | 138 | 0.0091 | 0.0673 | 162 | 137 |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 19925 | 15573 | 15577 | 145 | 149 | 0.0093 | 0.0342 | 142 | 146 |
+| recommended at t = 0.4 | 512 | 128 × 4 | 0.4 | 19925 | 16939 | 16917 | 99 | 77 | 0.0058 | 0.0258 | 98 | 76 |
+| recommended at t = 0.5 | 512 | 256 × 2 | 0.5 | 19925 | 17875 | 17886 | 69 | 80 | 0.0039 | 0.0390 | 69 | 80 |
+| recommended at t = 0.6 | 512 | 256 × 2 | 0.6 | 19925 | 18479 | 18481 | 37 | 39 | 0.0020 | 0.0270 | 37 | 39 |
+| recommended at t = 0.7 | 256 | 128 × 2 | 0.7 | 19925 | 18876 | 18876 | 38 | 38 | 0.0020 | 0.0362 | 38 | 38 |
+| recommended at t = 0.8 | 64 | 8 × 8 | 0.8 | 19925 | 19099 | 19092 | 32 | 25 | 0.0017 | 0.0303 | 32 | 25 |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 19925 | 19206 | 19209 | 7 | 10 | 0.0004 | 0.0139 | 7 | 10 |
 
 ![Data-loss rate against missed-duplicate rate](lsh_20news_full_kept.svg)
 

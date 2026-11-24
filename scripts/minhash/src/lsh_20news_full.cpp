@@ -777,14 +777,15 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   std::ostringstream kept_tsv;
   kept_tsv << tsv_licence() << meta.str()
            << "K\tR\tB\tT\tDocuments\tKeptExact\tKeptLSH\tKeptBoth\tWronglyRemoved\tMissedDuplicates\tRemovedExact\t"
-              "RemovedLSH\tDataLossRate\tMissedDuplicateRate\n";
+              "RemovedLSH\tDataLossRate\tMissedDuplicateRate\tLostComponents\tExtraKept\n";
   for (const auto& g : results) {
     const auto& k = g.kept;
     kept_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << fixed(g.point.threshold, 1)
              << "\t" << k.items << "\t" << k.kept_exact << "\t" << k.kept_lsh << "\t" << k.kept_both << "\t"
              << k.wrongly_removed << "\t" << k.missed_duplicates << "\t" << k.items - k.kept_exact << "\t"
              << k.items - k.kept_lsh << "\t" << ratio(k.wrongly_removed, k.kept_exact) << "\t"
-             << ratio(k.missed_duplicates, k.items - k.kept_exact) << "\n";
+             << ratio(k.missed_duplicates, k.items - k.kept_exact) << "\t" << k.lost_components << "\t" << k.extra_kept
+             << "\n";
   }
 
   std::ostringstream pairs_tsv;
@@ -872,7 +873,10 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "no cluster. **Wrongly removed:** a post that the exact clusters keep and the LSH clusters remove. **Missed "
         "duplicate:** a post that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly "
         "removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact "
-        "clusters.\n\n";
+        "clusters. These compare which post each side keeps. When a merge and a split meet, LSH can keep another "
+        "post of the same true cluster, so both counts are upper bounds. **Lost true cluster:** a true cluster, or "
+        "a post in no true cluster, with no post in the LSH kept set: real data loss. **Extra kept:** the LSH-kept "
+        "posts beyond one for each true cluster that they cover: near-copies really left in.\n\n";
   md << "## How deduplication works\n\n";
   md << "MinHash does not store the posts or their items. The index keeps a copy of each post's sketch, which is "
         "its k slot values, and a table of band keys, so that it can find likely near-duplicates fast. What to do "
@@ -1118,14 +1122,16 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "what LSH costs a downstream task: posts lost by mistake, and near-copies left in. All grid points are in "
         "`lsh_20news_full_kept.tsv`.\n\n";
   md << "| setting | k | b × r | t | posts | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | "
-        "data-loss rate | missed-duplicate rate |\n|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|\n";
+        "data-loss rate | missed-duplicate rate | lost true clusters | extra kept |\n"
+        "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n";
   for (const auto& setting : settings) {
     const auto& g = *setting.second;
     const auto& k = g.kept;
     md << "| " << setting.first << " | " << g.point.k << " | " << g.point.bands << " × " << g.point.rows << " | "
        << fixed(g.point.threshold, 1) << " | " << k.items << " | " << k.kept_exact << " | " << k.kept_lsh << " | "
        << k.wrongly_removed << " | " << k.missed_duplicates << " | " << ratio(k.wrongly_removed, k.kept_exact) << " | "
-       << ratio(k.missed_duplicates, k.items - k.kept_exact) << " |\n";
+       << ratio(k.missed_duplicates, k.items - k.kept_exact) << " | " << k.lost_components << " | " << k.extra_kept
+       << " |\n";
   }
   md << "\n![Data-loss rate against missed-duplicate rate](lsh_20news_full_kept.svg)\n\n";
   md << "How to read it: one panel for each r, and one curve for each k, with a point for each t. Lower left is "
