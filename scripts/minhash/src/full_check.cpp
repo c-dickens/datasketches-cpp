@@ -76,10 +76,6 @@ const char* const LICENCE_LINES[] = {
 
 constexpr std::size_t TOP_PAIRS = 20;
 constexpr std::size_t SHARED_SHINGLES = 3;
-// The merge figure shows the worst merges of the MH-14 setting, and the same items at this larger k
-// (the recommended k at t = demo::LSH_THRESHOLD on 20 Newsgroups, MH-14b).
-constexpr uint16_t COMPARE_K = 512;
-constexpr unsigned COMPARE_ROWS = 2;
 
 namespace fs = std::filesystem;
 using datasketches::minhash_lsh_index;
@@ -95,6 +91,11 @@ std::string fixed(double value, int digits) {
   std::array<char, 64> buf{};
   std::snprintf(buf.data(), buf.size(), "%.*f", digits, value);
   return buf.data();
+}
+
+// A threshold: 1 decimal when that is exact (0.3), else 2 (0.45).
+std::string tfix(double t) {
+  return fixed(t, std::abs(t * 10.0 - std::round(t * 10.0)) < 1e-9 ? 1 : 2);
 }
 
 std::string general(double value) {
@@ -149,6 +150,8 @@ struct grid_result {
   std::size_t external_split = 0;  // external pairs not in one true cluster, or not in one LSH cluster
   std::array<demo::band_rate, demo::NUM_BINS> bands{};  // the verified pairs of each J band
   demo::kept_counts kept{};  // deduplication by the LSH clusters against the true clusters
+  std::size_t verified_proxy = 0;     // verified pairs in one proxy group
+  demo::cluster_metrics proxy_lsh{};  // the LSH clusters against the proxy groups
 };
 
 struct estimate_row {
@@ -167,8 +170,8 @@ double precision_of(const demo::pair_check& c) {
   return c.counts.verified == 0 ? 0.0 : static_cast<double>(c.counts.both) / static_cast<double>(c.counts.verified);
 }
 
-bool meets_target(const grid_result& g) {
-  return g.pairs.pass && g.pairs.counts.similar > 0 && g.pairs.counts.verified > 0 &&
+bool meets_target(const grid_result& g, bool require_pass) {
+  return (g.pairs.pass || !require_pass) && g.pairs.counts.similar > 0 && g.pairs.counts.verified > 0 &&
          recall_of(g.pairs) >= demo::FULL_TARGET && precision_of(g.pairs) >= demo::FULL_TARGET;
 }
 
@@ -188,6 +191,80 @@ void write_file(const fs::path& path, const std::string& text) {
   }
 }
 
+constexpr double LOW_BIN_WIDTH = 0.001;  // the J bins of the pairs below the floor
+
+// The pairs with 0 < J < floor, by J bin of width LOW_BIN_WIDTH.
+struct low_bins {
+  std::vector<std::size_t> all;
+  std::vector<std::size_t> cross;  // of them, the cross pairs of the held-out split
+};
+
+// shortcut: the middle of its bin stands for each pair below the floor; the bins are 0.001 wide, so the
+// error is far below the spread of the counts. Store the pairs if a later floor run needs them exactly.
+double low_bin_j(std::size_t b) {
+  return (static_cast<double>(b) + 0.5) * LOW_BIN_WIDTH;
+}
+
+void write_low_bins(const fs::path& path, const std::string& header, const low_bins& bins) {
+  std::ostringstream out;
+  out << header << "# bins=" << bins.all.size() << "\n";
+  for (std::size_t b = 0; b < bins.all.size(); ++b) {
+    out << b << "\t" << bins.all[b] << "\t" << bins.cross[b] << "\n";
+  }
+  const fs::path part = path.string() + ".part";
+  write_file(part, out.str());
+  fs::rename(part, path);
+}
+
+// Returns false if the file is missing or has another header or bin count.
+bool read_low_bins(const fs::path& path, const std::string& header, std::size_t n_bins, low_bins& bins) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in) {
+    return false;
+  }
+  const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  const std::string head = header + "# bins=" + std::to_string(n_bins) + "\n";
+  if (text.compare(0, head.size(), head) != 0) {
+    return false;
+  }
+  std::istringstream rows(text.substr(head.size()));
+  bins.all.assign(n_bins, 0);
+  bins.cross.assign(n_bins, 0);
+  for (std::size_t b = 0; b < n_bins; ++b) {
+    std::size_t index = 0;
+    if (!(rows >> index >> bins.all[b] >> bins.cross[b]) || index != b) {
+      throw std::runtime_error("malformed line in " + path.string());
+    }
+  }
+  return true;
+}
+
+// shortcut: the two-sided normal approximation, with a continuity correction, of a count with this mean and
+// variance. The exact Poisson-binomial program is O(n * count), too slow for the pairs below a floor.
+double normal_p_value(double observed, double mean, double variance) {
+  if (!(variance > 0.0)) {
+    return std::abs(observed - mean) < 0.5 ? 1.0 : 0.0;
+  }
+  const double z = std::max(0.0, std::abs(observed - mean) - 0.5) / std::sqrt(variance);
+  return std::min(1.0, std::erfc(z / std::sqrt(2.0)));
+}
+
+// Adds the pairs below the floor (their count, mean and variance of the verified count) to the false side of
+// a pair check, and recomputes its precision p-value with normal_p_value.
+void add_low_pairs(demo::pair_check& c, const std::vector<double>& exact, const std::vector<double>& prob, double t,
+                   std::size_t low_count, double low_mean, double low_variance, double test_alpha) {
+  double variance = low_variance;
+  for (std::size_t i = 0; i < exact.size(); ++i) {
+    if (exact[i] > 0.0 && exact[i] < t) {
+      variance += prob[i] * (1.0 - prob[i]);
+    }
+  }
+  c.false_pairs += low_count;
+  c.expected_false += low_mean;
+  c.p_precision = normal_p_value(static_cast<double>(c.counts.verified - c.counts.both), c.expected_false, variance);
+  c.pass = c.p_recall >= test_alpha && c.p_precision >= test_alpha;
+}
+
 struct heldout_row {
   std::string setting;
   const grid_result* in_sample = nullptr;
@@ -202,7 +279,7 @@ std::vector<heldout_row> run_heldout(const std::vector<bool>& in_a, const std::v
                                      const demo::edge_list& pair_nodes, const std::vector<double>& exact_j,
                                      const std::unordered_map<uint64_t, std::size_t>& pair_index,
                                      const std::vector<std::pair<std::string, const grid_result*>>& settings,
-                                     double test_alpha) {
+                                     double test_alpha, const low_bins& low) {
   const std::size_t n = in_a.size();
   std::vector<std::size_t> index_ids;
   std::vector<std::size_t> query_ids;
@@ -277,6 +354,19 @@ std::vector<heldout_row> run_heldout(const std::vector<bool>& in_a, const std::v
     row.in_sample = setting.second;
     // report only: the pass flag is not used
     row.cross = demo::check_pair_tests(cross_j, cross_prob, cross_verified, disjoint, gp.threshold, test_alpha);
+    if (!low.cross.empty()) {  // the verified cross pairs below the floor are in `disjoint`
+      std::size_t low_count = 0;
+      double low_mean = 0.0;
+      double low_variance = 0.0;
+      for (std::size_t b = 0; b < low.cross.size(); ++b) {
+        const double p = demo::reported_tail(demo::binomial_pmf(low_bin_j(b), gp.k), q_table)[m];
+        const auto count = static_cast<double>(low.cross[b]);
+        low_count += low.cross[b];
+        low_mean += count * p;
+        low_variance += count * p * (1.0 - p);
+      }
+      add_low_pairs(row.cross, cross_j, cross_prob, gp.threshold, low_count, low_mean, low_variance, test_alpha);
+    }
     for (const std::size_t q : query_ids) {
       row.queries_with_match += has_match[q] ? 1 : 0;
       row.queries_hit += hit[q] ? 1 : 0;
@@ -306,27 +396,50 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   const auto name = [&post_name](std::size_t u) { return "`" + post_name(u) + "`"; };
   std::cout << src.nouns << " " << src.chosen << ", indexed " << n << " (" << fixed(seconds_since(start), 1) << " s)\n";
 
+  // The held-out split: the index set and the query set.
+  std::vector<bool> in_a(n);
+  std::size_t index_size = 0;
+  for (std::size_t u = 0; u < n; ++u) {
+    in_a[u] = demo::in_index_set(post_of[u], demo::HELDOUT_SEED);
+    index_size += in_a[u] ? 1 : 0;
+  }
+  if (src.floor > 0.0 && src.floor > src.thresholds.front()) {
+    throw std::invalid_argument("the floor is above the smallest threshold");
+  }
+
   // The exact pass, or its cache.
   const fs::path cache = data_dir.parent_path() / (src.stem + (smoke ? "_exact_pairs_smoke.tsv" : "_exact_pairs.tsv"));
   const std::string header = demo::exact_pairs_header(
       src.stem + " exact pairs (" + src.ticket + "): i, j, |A n B|, |A u B| of each pair of indexed " + src.nouns +
-          " with J > 0",
+          (src.floor > 0.0 ? " with J >= " + tfix(src.floor) : std::string(" with J > 0")),
       src.archive_sha256, src.shingle_words, n, demo::input_fingerprint(post_of, sets));
   const auto exact_start = steady::now();
   std::vector<demo::exact_pair> exact;
+  const fs::path low_cache =
+      data_dir.parent_path() / (src.stem + (smoke ? "_exact_pairs_low_smoke.tsv" : "_exact_pairs_low.tsv"));
+  const auto n_low_bins = static_cast<std::size_t>(std::ceil(src.floor / LOW_BIN_WIDTH - 1e-9));
+  low_bins low;
   bool loaded = false;
   {
     std::ifstream in(cache, std::ios::binary);
-    loaded = in && demo::read_exact_pairs(in, header, exact);
+    loaded = in && demo::read_exact_pairs(in, header, exact) &&
+             (src.floor == 0.0 || read_low_bins(low_cache, header, n_low_bins, low));
   }
   if (loaded) {
     std::cout << "exact pairs: loaded " << exact.size() << " from " << cache.string() << "\n";
   } else {
     std::cout << "exact pairs: no cache with this header, running the exact pass\n";
+    exact.clear();
+    low.all.assign(n_low_bins, 0);
+    low.cross.assign(n_low_bins, 0);
     for (std::size_t u = 0; u < n; ++u) {
       for (std::size_t v = u + 1; v < n; ++v) {
         const double j = news20::jaccard(sets[u], sets[v]);
-        if (j > 0.0) {
+        if (j > 0.0 && j < src.floor) {
+          const std::size_t b = std::min(n_low_bins - 1, static_cast<std::size_t>(j / LOW_BIN_WIDTH));
+          ++low.all[b];
+          low.cross[b] += in_a[u] != in_a[v] ? 1 : 0;
+        } else if (j > 0.0) {
           const std::size_t common = common_count(sets[u], sets[v]);
           const std::size_t united = sets[u].size() + sets[v].size() - common;
           if (static_cast<double>(common) / static_cast<double>(united) != j) {
@@ -353,6 +466,13 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     }
     fs::rename(part, cache);
     std::cout << "exact pairs: computed " << exact.size() << ", wrote " << cache.string() << "\n";
+    if (src.floor > 0.0) {
+      write_low_bins(low_cache, header, low);
+    }
+  }
+  std::size_t low_count = 0;
+  for (const std::size_t c : low.all) {
+    low_count += c;
   }
   const double exact_seconds = seconds_since(exact_start);
   std::cout << "exact pass or cache: " << fixed(exact_seconds, 1) << " s\n";
@@ -390,7 +510,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
 
   // The true clusters at each t.
   std::vector<std::vector<std::size_t>> true_label;
-  for (const double t : demo::FULL_THRESHOLDS) {
+  for (const double t : src.thresholds) {
     demo::edge_list edges;
     for (std::size_t e = 0; e < n_pairs; ++e) {
       if (exact_j[e] >= t) {
@@ -399,13 +519,36 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     }
     true_label.push_back(demo::components(n, edges));
   }
+  const bool has_proxy = !src.proxy_group.empty();
+  if (has_proxy && src.proxy_group.size() != n) {
+    throw std::invalid_argument("proxy_group has the wrong size");
+  }
+  std::vector<std::size_t> true_proxy_pairs(src.thresholds.size(), 0);  // true pairs in one proxy group
+  std::vector<demo::cluster_metrics> proxy_true(src.thresholds.size());  // the true clusters against the groups
+  if (has_proxy) {
+    for (std::size_t ti = 0; ti < src.thresholds.size(); ++ti) {
+      for (std::size_t e = 0; e < n_pairs; ++e) {
+        const auto& pr = pair_nodes[e];
+        true_proxy_pairs[ti] +=
+            exact_j[e] >= src.thresholds[ti] && src.proxy_group[pr.first] == src.proxy_group[pr.second] ? 1 : 0;
+      }
+      proxy_true[ti] = demo::compare_clusters(true_label[ti], src.proxy_group);
+    }
+  }
 
-  const auto grid = demo::full_grid();
+  std::vector<demo::grid_point> grid;  // as demo::full_grid(), with the rows and thresholds of src
+  for (const uint16_t k : demo::FULL_K_VALUES) {
+    for (const unsigned rows : src.rows) {
+      for (const double t : src.thresholds) {
+        grid.push_back(demo::grid_point{k, rows, k / rows, t});
+      }
+    }
+  }
   const double test_alpha = demo::FULL_ALPHA / static_cast<double>(2 * grid.size());
-  const std::size_t n_rows = demo::FULL_ROWS.size();
-  const std::size_t n_t = demo::FULL_THRESHOLDS.size();
+  const std::size_t n_rows = src.rows.size();
+  const std::size_t n_t = src.thresholds.size();
   std::vector<grid_result> results(grid.size());
-  // The reported pairs of the MH-14 setting [0] and of COMPARE_K, COMPARE_ROWS [1], at t = LSH_THRESHOLD.
+  // The reported pairs of the reference setting [0] and of compare_k, compare_rows [1], at t = ref_threshold.
   struct reported_pairs {
     demo::edge_list edges;
     std::vector<double> exact;
@@ -463,14 +606,24 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
 
     // P(reported | J) of every pair, at each (r, t) of this k.
     std::vector<std::vector<double>> q;
-    for (const unsigned rows : demo::FULL_ROWS) {
+    for (const unsigned rows : src.rows) {
       q.push_back(demo::full_band_given_matches(rows, k / rows));
     }
     std::vector<std::size_t> m;
-    for (const double t : demo::FULL_THRESHOLDS) {
+    for (const double t : src.thresholds) {
       m.push_back(demo::min_matches(t, k));
     }
     std::vector<std::vector<double>> prob(n_rows * n_t, std::vector<double>(n_pairs));
+    std::vector<std::vector<double>> low_prob(n_rows * n_t, std::vector<double>(n_low_bins));  // of each low bin
+    for (std::size_t b = 0; b < n_low_bins; ++b) {
+      const auto pmf = demo::binomial_pmf(low_bin_j(b), k);
+      for (std::size_t ri = 0; ri < n_rows; ++ri) {
+        const auto tail = demo::reported_tail(pmf, q[ri]);
+        for (std::size_t ti = 0; ti < n_t; ++ti) {
+          low_prob[ri * n_t + ti][b] = tail[m[ti]];
+        }
+      }
+    }
     for (std::size_t e = 0; e < n_pairs; ++e) {
       const auto pmf = demo::binomial_pmf(exact_j[e], k);
       for (std::size_t ri = 0; ri < n_rows; ++ri) {
@@ -482,7 +635,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     }
 
     for (std::size_t ri = 0; ri < n_rows; ++ri) {
-      const unsigned rows = demo::FULL_ROWS[ri];
+      const unsigned rows = src.rows[ri];
       const auto bands = static_cast<uint16_t>(k / rows);
       std::vector<std::vector<uint64_t>> keys;
       keys.reserve(n);
@@ -520,14 +673,15 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
       }
 
       for (std::size_t ti = 0; ti < n_t; ++ti) {
-        const double t = demo::FULL_THRESHOLDS[ti];
+        const double t = src.thresholds[ti];
         grid_result& g = results[((ki - 1) * n_rows + ri) * n_t + ti];
         g.point = demo::grid_point{k, rows, bands, t};
         g.min_matches = m[ti];
         g.candidates = candidates.size();
         // The reported pairs: candidates with Ĵ >= t.
         std::vector<bool> reported(n_pairs, false);
-        std::size_t reported_disjoint = 0;
+        std::size_t reported_disjoint = 0;  // verified pairs that are not stored: J = 0, or J below the floor
+        std::array<std::size_t, demo::NUM_BINS> low_verified{};  // of them, the pairs with J > 0, by J band
         demo::edge_list edges;
         std::vector<double> edge_j;
         std::vector<double> edge_estimate;
@@ -540,7 +694,11 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
           const auto it = pair_index.find(candidates[c]);
           if (it == pair_index.end()) {
             ++reported_disjoint;
-            edge_j.push_back(0.0);
+            const double j = src.floor > 0.0 ? news20::jaccard(sets[u], sets[v]) : 0.0;
+            if (j > 0.0) {
+              ++low_verified[demo::jaccard_bin(j)];
+            }
+            edge_j.push_back(j);
           } else {
             reported[it->second] = true;
             edge_j.push_back(exact_j[it->second]);
@@ -551,12 +709,29 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         const auto tail_start = steady::now();
         g.pairs = demo::check_pair_tests(exact_j, prob[ri * n_t + ti], reported, reported_disjoint, t, test_alpha);
         g.bands = demo::band_rates(exact_j, prob[ri * n_t + ti], reported);
+        if (src.floor > 0.0) {
+          const auto& lp = low_prob[ri * n_t + ti];
+          double low_mean = 0.0;
+          double low_variance = 0.0;
+          for (std::size_t b = 0; b < n_low_bins; ++b) {
+            const auto count = static_cast<double>(low.all[b]);
+            low_mean += count * lp[b];
+            low_variance += count * lp[b] * (1.0 - lp[b]);
+            auto& band = g.bands[demo::jaccard_bin(low_bin_j(b))];
+            band.pairs += low.all[b];
+            band.expected += count * lp[b];
+          }
+          for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
+            g.bands[band].verified += low_verified[band];
+          }
+          add_low_pairs(g.pairs, exact_j, prob[ri * n_t + ti], t, low_count, low_mean, low_variance, test_alpha);
+        }
         tail_seconds += seconds_since(tail_start);
 
         const auto lsh_label = demo::components(n, edges);
-        if (t == demo::LSH_THRESHOLD && ((k == demo::LSH_K && rows == demo::LSH_ROWS) ||
-                                         (k == COMPARE_K && rows == COMPARE_ROWS))) {
-          saved[k == demo::LSH_K ? 0 : 1] = reported_pairs{edges, edge_j, edge_estimate, lsh_label};
+        if (t == src.ref_threshold && ((k == src.ref_k && rows == src.ref_rows) ||
+                                       (k == src.compare_k && rows == src.compare_rows))) {
+          saved[k == src.ref_k && rows == src.ref_rows ? 0 : 1] = reported_pairs{edges, edge_j, edge_estimate, lsh_label};
         }
         // Consistency: the components of the reported pairs are the clusters of the index.
         minhash_lsh_index index(bands, t);
@@ -569,11 +744,17 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         }
         if (index_clusters != demo::clusters_of(lsh_label)) {
           throw std::runtime_error("the components of the reported pairs differ from get_duplicate_clusters() at k = " +
-                                   std::to_string(k) + ", r = " + std::to_string(rows) + ", t = " + fixed(t, 1));
+                                   std::to_string(k) + ", r = " + std::to_string(rows) + ", t = " + tfix(t));
         }
         g.clusters = demo::compare_clusters(lsh_label, true_label[ti]);
         g.worst = demo::worst_merges(lsh_label, true_label[ti], edges, edge_j, demo::WORST_MERGES);
         g.kept = demo::compare_kept(lsh_label, true_label[ti]);
+        if (has_proxy) {
+          for (const auto& edge : edges) {
+            g.verified_proxy += src.proxy_group[edge.first] == src.proxy_group[edge.second] ? 1 : 0;
+          }
+          g.proxy_lsh = demo::compare_clusters(lsh_label, src.proxy_group);
+        }
         for (const auto& pr : src.external) {
           if (true_label[ti][pr.first] != true_label[ti][pr.second] || lsh_label[pr.first] != lsh_label[pr.second]) {
             ++g.external_split;
@@ -594,18 +775,18 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   }
   const bool prefix_pass = prefix_failed == 0;
   const bool external_pass = external_failed == 0;
-  const bool overall = pair_failed == 0 && prefix_pass && external_pass;
+  const bool overall = (pair_failed == 0 || !src.pair_test_in_overall) && prefix_pass && external_pass;
 
-  // The MH-14 setting: k = LSH_K, LSH_BANDS x LSH_ROWS, t = LSH_THRESHOLD.
+  // The reference setting: k = ref_k, (ref_k / ref_rows) x ref_rows, t = ref_threshold.
   const grid_result* ref = nullptr;
   for (const auto& g : results) {
-    if (g.point.k == demo::LSH_K && g.point.rows == demo::LSH_ROWS && g.point.threshold == demo::LSH_THRESHOLD) {
+    if (g.point.k == src.ref_k && g.point.rows == src.ref_rows && g.point.threshold == src.ref_threshold) {
       ref = &g;
     }
   }
   const auto t_ref = static_cast<std::size_t>(
-      std::find(demo::FULL_THRESHOLDS.begin(), demo::FULL_THRESHOLDS.end(), demo::LSH_THRESHOLD) -
-      demo::FULL_THRESHOLDS.begin());
+      std::find(src.thresholds.begin(), src.thresholds.end(), src.ref_threshold) - src.thresholds.begin());
+  const unsigned ref_bands = src.ref_k / src.ref_rows;
   const auto band_label = [](std::size_t band) {
     return "[" + fixed(static_cast<double>(band) / demo::NUM_BINS, 1) + ", " +
            fixed(static_cast<double>(band + 1) / demo::NUM_BINS, 1) + (band + 1 == demo::NUM_BINS ? "]" : ")");
@@ -615,6 +796,9 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   std::ostringstream meta;
   meta << "# ticket=" << src.ticket << "\n# smoke=" << (smoke ? 1 : 0) << "\n# indexed_posts=" << n << "\n# pairs_j_gt_0=" << n_pairs
        << "\n# family_alpha=" << general(demo::FULL_ALPHA) << "\n# test_alpha=" << general(test_alpha) << "\n";
+  if (src.floor > 0.0) {
+    meta << "# floor=" << tfix(src.floor) << "\n# pairs_below_floor=" << low_count << "\n";
+  }
   std::ostringstream bands_tsv;
   bands_tsv << tsv_licence() << meta.str()
             << "K\tR\tB\tT\tBandLo\tBandHi\tPairs\tVerified\tVerifiedRate\tExpectedVerified\tExpectedRate\n";
@@ -622,7 +806,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
       const auto& b = g.bands[band];
       const auto count = static_cast<double>(b.pairs);
-      bands_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << fixed(g.point.threshold, 1)
+      bands_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << tfix(g.point.threshold)
                 << "\t" << fixed(static_cast<double>(band) / demo::NUM_BINS, 1) << "\t"
                 << fixed(static_cast<double>(band + 1) / demo::NUM_BINS, 1) << "\t" << b.pairs << "\t" << b.verified
                 << "\t" << (b.pairs == 0 ? "NA" : fixed(static_cast<double>(b.verified) / count, 6)) << "\t"
@@ -633,7 +817,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   // A random sample of the LSH clusters with at least SAMPLE_CLUSTER_MIN_SIZE posts at the MH-14 setting: the
   // clusters whose smallest post index has the smallest XXHash64 (seed SAMPLE_SEED).
   std::ostringstream sample_tsv;
-  sample_tsv << tsv_licence() << meta.str() << "# threshold=" << fixed(demo::LSH_THRESHOLD, 1) << "\n"
+  sample_tsv << tsv_licence() << meta.str() << "# threshold=" << tfix(src.ref_threshold) << "\n"
              << "Sample\tKind\tPost\tOther\tTrueCluster\tExactJ\tEstimatedJ\n";
   std::size_t sample_eligible = 0;
   std::size_t sample_drawn = 0;
@@ -679,7 +863,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
       for (std::size_t a = 0; a < members.size(); ++a) {
         for (std::size_t b = a + 1; b < members.size(); ++b) {
           const auto it = pair_index.find(static_cast<uint64_t>(members[a]) * n + members[b]);
-          if (it != pair_index.end() && exact_j[it->second] >= demo::LSH_THRESHOLD &&
+          if (it != pair_index.end() && exact_j[it->second] >= src.ref_threshold &&
               verified_edges.count({members[a], members[b]}) == 0) {
             sample_tsv << s + 1 << "\tmissed\t" << post_name(members[a]) << "\t" << post_name(members[b]) << "\t-\t"
                        << fixed(exact_j[it->second], 4) << "\t-\n";
@@ -698,7 +882,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
       for (std::size_t ri = 0; ri < n_rows; ++ri) {
         const auto& g = results[(ki * n_rows + ri) * n_t + ti];
         const auto score = [](const grid_result& x) { return std::min(recall_of(x.pairs), precision_of(x.pairs)); };
-        if (meets_target(g) && (best == nullptr || score(g) > score(*best))) {
+        if (meets_target(g, src.pair_test_in_overall) && (best == nullptr || score(g) > score(*best))) {
           best = &g;
         }
       }
@@ -708,13 +892,13 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   // setting of each t, each once.
   std::vector<std::pair<std::string, const grid_result*>> settings;
   if (ref != nullptr) {
-    settings.emplace_back("MH-14 setting", ref);
+    settings.emplace_back(src.ref_label, ref);
   }
   for (std::size_t ti = 0; ti < n_t; ++ti) {
     if (recommended[ti] == nullptr) {
       continue;
     }
-    const std::string label = "recommended at t = " + fixed(demo::FULL_THRESHOLDS[ti], 1);
+    const std::string label = "recommended at t = " + tfix(src.thresholds[ti]);
     const auto same = std::find_if(settings.begin(), settings.end(),
                                    [&](const auto& s) { return s.second == recommended[ti]; });
     if (same == settings.end()) {
@@ -725,15 +909,9 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   }
 
   // Held-out queries: index only the index set, and query with each post of the query set.
-  std::vector<bool> in_a(n);
-  std::size_t index_size = 0;
-  for (std::size_t u = 0; u < n; ++u) {
-    in_a[u] = demo::in_index_set(post_of[u], demo::HELDOUT_SEED);
-    index_size += in_a[u] ? 1 : 0;
-  }
   const std::size_t query_size = n - index_size;
   const auto heldout_start = steady::now();
-  const auto heldout = run_heldout(in_a, sets, pair_nodes, exact_j, pair_index, settings, test_alpha);
+  const auto heldout = run_heldout(in_a, sets, pair_nodes, exact_j, pair_index, settings, test_alpha, low);
   std::cout << "held-out queries: " << fixed(seconds_since(heldout_start), 1) << " s\n";
 
   std::ostringstream heldout_tsv;
@@ -746,7 +924,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     const auto& c = h.cross.counts;
     const auto& in = h.in_sample->pairs.counts;
     const auto& gp = h.in_sample->point;
-    heldout_tsv << h.setting << "\t" << gp.k << "\t" << gp.rows << "\t" << gp.bands << "\t" << fixed(gp.threshold, 1)
+    heldout_tsv << h.setting << "\t" << gp.k << "\t" << gp.rows << "\t" << gp.bands << "\t" << tfix(gp.threshold)
                 << "\t" << c.similar << "\t" << c.verified << "\t" << c.both << "\t" << ratio(c.both, c.similar) << "\t"
                 << ratio(c.both, c.verified) << "\t" << fixed(h.cross.expected_true, 2) << "\t"
                 << fixed(h.cross.expected_false, 2) << "\t" << general(h.cross.p_recall) << "\t"
@@ -761,7 +939,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
               "RemovedLSH\tDataLossRate\tMissedDuplicateRate\tLostComponents\tExtraKept\n";
   for (const auto& g : results) {
     const auto& k = g.kept;
-    kept_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << fixed(g.point.threshold, 1)
+    kept_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << tfix(g.point.threshold)
              << "\t" << k.items << "\t" << k.kept_exact << "\t" << k.kept_lsh << "\t" << k.kept_both << "\t"
              << k.wrongly_removed << "\t" << k.missed_duplicates << "\t" << k.items - k.kept_exact << "\t"
              << k.items - k.kept_lsh << "\t" << ratio(k.wrongly_removed, k.kept_exact) << "\t"
@@ -781,7 +959,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   for (const auto& g : results) {
     const auto& c = g.pairs.counts;
     const std::string point = std::to_string(g.point.k) + "\t" + std::to_string(g.point.rows) + "\t" +
-                              std::to_string(g.point.bands) + "\t" + fixed(g.point.threshold, 1) + "\t";
+                              std::to_string(g.point.bands) + "\t" + tfix(g.point.threshold) + "\t";
     pairs_tsv << point << g.min_matches << "\t" << c.similar << "\t" << g.pairs.false_pairs << "\t" << g.candidates
               << "\t" << c.verified << "\t" << c.both << "\t" << c.verified - c.both << "\t" << ratio(c.both, c.similar)
               << "\t" << ratio(c.both, c.verified) << "\t" << fixed(g.pairs.expected_true, 2) << "\t"
@@ -821,10 +999,15 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
      << "_clusters.tsv` and `" << src.stem << "_estimates.tsv`. `plots/lsh_20news_full.py` draws the figures from "
         "them.\n\n";
   md << "## Definitions\n\n";
-  md << "- **Data point:** one " << src.noun << ". It is the set of its " << news20::SHINGLE_WORDS
-     << "-word shingles: runs of " << news20::SHINGLE_WORDS
-     << " consecutive lower-case words, " << src.shingle_source << ". An indexed " << src.noun << " has at "
-        "least 1 shingle.\n";
+  if (src.shingle_words == 1) {
+    md << "- **Data point:** one " << src.noun << ". It is the set of its words: the runs of lower-case letters and "
+          "digits that `demo::words` finds, " << src.shingle_source << ". An indexed " << src.noun << " has at least "
+          "1 word.\n";
+  } else {
+    md << "- **Data point:** one " << src.noun << ". It is the set of its " << src.shingle_words
+       << "-word shingles: runs of " << src.shingle_words << " consecutive lower-case words, " << src.shingle_source
+       << ". An indexed " << src.noun << " has at least 1 shingle.\n";
+  }
   md << "- **Pair:** two different indexed " << src.nouns << ", in any order.\n";
   md << "- **Exact J:** |A ∩ B| / |A ∪ B| of the two shingle sets. **Estimated J (Ĵ):** the share of the k slots "
         "whose values are equal.\n";
@@ -884,8 +1067,19 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   md << "- " << src.nouns << ": " << src.chosen << (smoke ? " (" + src.sample_note + ")" : "") << "\n";
   md << "- indexed " << src.nouns << " (at least one shingle of " << src.shingle_words << (src.shingle_words == 1 ? " word" : " words") << "): " << n << "\n";
   md << "- pairs of indexed " << src.nouns << ": " << n * (n - 1) / 2 << "\n";
-  md << "- pairs with exact J > 0 (stored in the exact-pair cache): " << n_pairs << "\n";
-  md << "- grid: k ∈ {64, 128, 256, 512, 1024}, r ∈ {2, 4, 8, 16}, b = k / r, t ∈ {0.3, …, 0.9}: " << grid.size()
+  if (src.floor > 0.0) {
+    md << "- pairs with exact J ≥ " << tfix(src.floor) << " (stored in the exact-pair cache): " << n_pairs << "\n";
+    md << "- pairs with 0 < J < " << tfix(src.floor) << " (counted in J bins of width " << general(LOW_BIN_WIDTH)
+       << ", not stored): " << low_count << "\n";
+  } else {
+    md << "- pairs with exact J > 0 (stored in the exact-pair cache): " << n_pairs << "\n";
+  }
+  std::string rows_text;
+  for (const unsigned rows : src.rows) {
+    rows_text += (rows_text.empty() ? "" : ", ") + std::to_string(rows);
+  }
+  md << "- grid: k ∈ {64, 128, 256, 512, 1024}, r ∈ {" << rows_text << "}, b = k / r, t ∈ {"
+     << tfix(src.thresholds.front()) << ", …, " << tfix(src.thresholds.back()) << "}: " << grid.size()
      << " points\n\n";
   md << "Truth: a true pair at t has exact J ≥ t, with J from `news20::jaccard` on " << src.shingle_sets
      << ". The true clusters at t are the connected components of the true pairs. Verified pairs: the candidates "
@@ -902,8 +1096,8 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   md << "- " << src.external_label << ": " << src.external.size()
      << "\n- (pair, grid point) cases not in one cluster: " << external_failed << "\n\n";
 
-  md << "## Pair check: " << (pair_failed == 0 ? "PASS" : "FAIL") << " (" << grid.size() - pair_failed << " of "
-     << grid.size() << " grid points pass)\n\n";
+  md << "## Pair check: " << (!src.pair_test_in_overall ? "report only" : pair_failed == 0 ? "PASS" : "FAIL") << " ("
+     << grid.size() - pair_failed << " of " << grid.size() << " grid points pass)\n\n";
   md << "P(verified | J) is the joint probability that some band is all-equal and at least m = ⌈t k⌉ slots are "
         "equal, with each slot equal independently with probability J. It is Σ_{s ≥ m} P(Binomial(k, J) = s) q(s), "
         "where q(s) is the probability that s uniformly placed equal slots fill some band (a dynamic program over the "
@@ -916,11 +1110,22 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
      << general(demo::FULL_ALPHA)
      << ". They are not: pairs that share a " << src.noun
      << " use the same signature, so their outcomes are positively correlated, the counts spread more than the "
-        "Poisson-binomial allows, and the p-values are too small. So this bound is not exact. The margin here is "
-        "wide: the smallest p-value is in `"
-     << src.stem
-     << "_pairs.tsv` and the figure below. MH-14 checks the S-curve on independent synthetic pairs for this "
-        "reason.\n\n";
+        "Poisson-binomial allows, and the p-values are too small. So this bound is not exact. ";
+  if (src.pair_test_in_overall) {
+    md << "The margin here is wide: the smallest p-value is in `" << src.stem
+       << "_pairs.tsv` and the figure below. MH-14 checks the S-curve on independent synthetic pairs for this "
+          "reason.\n\n";
+  } else {
+    md << "Here the pair check is report only, and it does not enter `Overall`. MH-14 checks the S-curve on "
+          "independent synthetic pairs.\n\n";
+  }
+  if (src.floor > 0.0) {
+    md << "The false count also includes the pairs below the floor: each bin adds its count times P(verified | J) at "
+          "the middle of the bin. Because the exact Poisson-binomial program is too slow for so many pairs, the "
+          "precision p-value is the two-sided normal approximation with a continuity correction. The recall p-value "
+          "stays exact, because every true pair is stored.\n\n";
+  }
+  md << src.pair_test_note;
   md << "![Measured counts against the theory, and all p-values](" << src.stem << "_theory.svg)\n\n";
   md << "How to read it: on the left, each dot is one count at one grid point. A dot on the line means that the "
         "measured count equals the theory. On the right, the p-values of all tests are sorted. A test fails only "
@@ -929,7 +1134,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     md << "| k | r | t | recall p | precision p |\n|---:|---:|---:|---:|---:|\n";
     for (const auto& g : results) {
       if (!g.pairs.pass) {
-        md << "| " << g.point.k << " | " << g.point.rows << " | " << fixed(g.point.threshold, 1) << " | "
+        md << "| " << g.point.k << " | " << g.point.rows << " | " << tfix(g.point.threshold) << " | "
            << general(g.pairs.p_recall) << " | " << general(g.pairs.p_precision) << " |\n";
       }
     }
@@ -939,12 +1144,12 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   md << "## Recommended k\n\n";
   md << "For each t: the smallest k with a (b, r) whose pair recall and pair precision are both ≥ "
      << fixed(demo::FULL_TARGET, 2)
-     << " and whose pair check passes. The best (b, r) at that k has the largest min(recall, precision), ties by the "
-        "smaller r.\n\n";
+     << (src.pair_test_in_overall ? " and whose pair check passes" : "")
+     << ". The best (b, r) at that k has the largest min(recall, precision), ties by the smaller r.\n\n";
   md << "| t | k | b × r | recall | precision |\n|---:|---:|---|---:|---:|\n";
   for (std::size_t ti = 0; ti < n_t; ++ti) {
     const grid_result* best = recommended[ti];
-    md << "| " << fixed(demo::FULL_THRESHOLDS[ti], 1) << " | ";
+    md << "| " << tfix(src.thresholds[ti]) << " | ";
     if (best == nullptr) {
       md << "none reaches the target | - | - | - |\n";
     } else {
@@ -960,11 +1165,12 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   md << "How to read it: each row is one (k, b × r), and each column is one t. Bright cells are near 1, and bold "
         "values are at least 0.95. Recall rises and precision falls as r gets smaller.\n\n";
   md << "![Precision against recall for each k](" << src.stem << "_pr.svg)\n\n";
-  md << "How to read it: one panel for each k, and one curve for each r. Each curve runs from t = 0.3 to t = 0.9. "
+  md << "How to read it: one panel for each k, and one curve for each r. Each curve runs from t = "
+     << tfix(src.thresholds.front()) << " to t = " << tfix(src.thresholds.back()) << ". "
         "The dotted lines mark 0.95, so a point in the top-right corner meets the target of a recommended k.\n\n";
   md << "Each cell is recall / precision. A FAIL marks a failed pair check.\n\n| k | b × r |";
-  for (const double t : demo::FULL_THRESHOLDS) {
-    md << " t = " << fixed(t, 1) << " |";
+  for (const double t : src.thresholds) {
+    md << " t = " << tfix(t) << " |";
   }
   md << "\n|---:|---|";
   for (std::size_t ti = 0; ti < n_t; ++ti) {
@@ -990,8 +1196,8 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         "mean of P(verified | J) over the pairs of the band. All grid points are in `"
      << src.stem << "_bands.tsv`.\n\n";
   if (ref != nullptr) {
-    md << "At k = " << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << ", t = "
-       << fixed(demo::LSH_THRESHOLD, 1) << ":\n\n";
+    md << "At k = " << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << ", t = " << tfix(src.ref_threshold)
+       << ":\n\n";
     md << "| J band | pairs | verified | verified rate | expected rate |\n|---|---:|---:|---:|---:|\n";
     for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
       const auto& b = ref->bands[band];
@@ -1024,7 +1230,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     const auto& c = h.cross.counts;
     const auto& in = h.in_sample->pairs.counts;
     const auto& gp = h.in_sample->point;
-    md << "| " << h.setting << " | " << gp.k << " | " << gp.bands << " × " << gp.rows << " | " << fixed(gp.threshold, 1)
+    md << "| " << h.setting << " | " << gp.k << " | " << gp.bands << " × " << gp.rows << " | " << tfix(gp.threshold)
        << " | " << c.similar << " | " << ratio(c.both, c.similar) << " | " << ratio(in.both, in.similar) << " | "
        << ratio(c.both, c.verified) << " | " << ratio(in.both, in.verified) << " | " << c.both << " / "
        << fixed(h.cross.expected_true, 1) << " | " << c.verified - c.both << " / " << fixed(h.cross.expected_false, 1)
@@ -1037,7 +1243,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         "measured and expected counts should agree, as in the pair check. The query hit rate says how often a new "
         "" << src.noun << " with a near-copy in the index finds at least one of them.\n\n";
   md << "## Estimate error\n\n";
-  md << "On the stored pairs with exact J ≥ " << fixed(demo::ESTIMATE_MIN_J, 1)
+  md << "On the stored pairs with exact J ≥ " << tfix(std::max(demo::ESTIMATE_MIN_J, src.floor))
      << ". The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.\n\n";
   md << "![Estimate error against k](" << src.stem << "_estimates.svg)\n\n";
   md << "How to read it: on the left, the measured RMSE (blue) lies on the theory (orange), and it halves when k "
@@ -1050,8 +1256,8 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   }
   md << "\n";
 
-  md << "## Clusters at k = " << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << ", t = "
-     << fixed(demo::LSH_THRESHOLD, 1) << " (the MH-14 setting)\n\n";
+  md << "## Clusters at k = " << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << ", t = "
+     << tfix(src.ref_threshold) << " (the " << src.ref_label << ")\n\n";
   md << "Co-membership: a pair of " << src.nouns << " is in one cluster. A " << src.noun
      << " alone counts as a component of its own, so a merge can join a true cluster and a " << src.noun
      << " that is in no true cluster. All grid points are in `" << src.stem << "_clusters.tsv`.\n\n";
@@ -1082,12 +1288,12 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     md << "\n";
     md << "![The worst merges as graphs](" << src.stem << "_merges.svg)\n\n";
     md << "How to read it: each column is one merge of the table above, in the same order. Each dot is a " << src.noun
-       << ", coloured by its true cluster at t = " << fixed(demo::LSH_THRESHOLD, 1)
+       << ", coloured by its true cluster at t = " << tfix(src.ref_threshold)
        << ". Each line is a verified pair, labelled with its exact J. A grey line joins " << src.nouns
        << " of one true cluster. A red line has J < t, so it is a false link that joins 2 true clusters, and the "
-          "thickest red line is the weakest link. The top row is the MH-14 setting (k = "
-       << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << "). The bottom row shows the same "
-       << src.nouns << " at k = " << COMPARE_K << ", " << COMPARE_K / COMPARE_ROWS << " × " << COMPARE_ROWS
+          "thickest red line is the weakest link. The top row is the " << src.ref_label << " (k = "
+       << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << "). The bottom row shows the same "
+       << src.nouns << " at k = " << src.compare_k << ", " << src.compare_k / src.compare_rows << " × " << src.compare_rows
        << ", with only the pairs among these " << src.nouns << ". The data is in `" << src.stem
        << "_merges.tsv`.\n\n";
     md << "### A random sample of the clusters\n\n";
@@ -1096,7 +1302,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
        << ") of the smallest " << src.noun << " index of each cluster. " << sample_merges << " of them contain a merge.\n\n";
     md << "![A random sample of the clusters as graphs](" << src.stem << "_sample_clusters.svg)\n\n";
     md << "How to read it: each panel is one LSH cluster. Each dot is a " << src.noun << ", coloured by its true cluster at t = "
-       << fixed(demo::LSH_THRESHOLD, 1)
+       << tfix(src.ref_threshold)
        << ", and a grey dot is in no true cluster. A solid line is a verified pair, labelled with its exact J, and "
           "it is red when J < t. A dashed line is a true pair (J ≥ t) between drawn " << src.nouns << " that LSH did not verify; "
           "the chain still puts both " << src.nouns << " in the cluster. The data is in `" << src.stem << "_sample_clusters.tsv`.\n\n";
@@ -1114,7 +1320,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
     const auto& g = *setting.second;
     const auto& k = g.kept;
     md << "| " << setting.first << " | " << g.point.k << " | " << g.point.bands << " × " << g.point.rows << " | "
-       << fixed(g.point.threshold, 1) << " | " << k.items << " | " << k.kept_exact << " | " << k.kept_lsh << " | "
+       << tfix(g.point.threshold) << " | " << k.items << " | " << k.kept_exact << " | " << k.kept_lsh << " | "
        << k.wrongly_removed << " | " << k.missed_duplicates << " | " << ratio(k.wrongly_removed, k.kept_exact) << " | "
        << ratio(k.missed_duplicates, k.items - k.kept_exact) << " | " << k.lost_components << " | " << k.extra_kept
        << " |\n";
@@ -1123,6 +1329,46 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   md << "How to read it: one panel for each r, and one curve for each k, with a point for each t. Lower left is "
         "good. A point high on the y axis removes " << src.nouns << " that have no near-copy (data loss, mostly from merges). A "
         "point far right keeps near-copies that should go (missed duplicates, mostly from splits).\n\n";
+  std::ostringstream proxy_tsv;
+  if (has_proxy) {
+    const std::size_t proxy_pairs = proxy_true[0].true_pairs;
+    proxy_tsv << tsv_licence() << meta.str() << "# proxy_pairs=" << proxy_pairs << "\n"
+              << "K\tR\tB\tT\tTruePairs\tTrueProxy\tVerifiedPairs\tVerifiedProxy\tTrueCoPairs\tTrueCoProxy\t"
+                 "LshCoPairs\tLshCoProxy\n";
+    for (std::size_t i = 0; i < results.size(); ++i) {
+      const auto& g = results[i];
+      const std::size_t ti = i % n_t;
+      proxy_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << tfix(g.point.threshold) << "\t"
+                << g.pairs.counts.similar << "\t" << true_proxy_pairs[ti] << "\t" << g.pairs.counts.verified << "\t"
+                << g.verified_proxy << "\t" << proxy_true[ti].lsh_pairs << "\t" << proxy_true[ti].both_pairs << "\t"
+                << g.proxy_lsh.lsh_pairs << "\t" << g.proxy_lsh.both_pairs << "\n";
+    }
+    md << "## " << src.proxy_title << " (report only)\n\n";
+    md << src.proxy_text << "\n\n";
+    md << "- proxy pairs (two " << src.nouns << " of one group): " << proxy_pairs << "\n\n";
+    md << "Each cell is precision / recall against the proxy: the share of the pairs that are proxy pairs, and the "
+          "share of the proxy pairs that they cover. True pairs and true clusters use the exact J, so they show the "
+          "gap between the item and the proxy. Verified pairs and LSH clusters add the error of the sketch. At k = "
+       << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << "; all grid points are in `" << src.stem
+       << "_proxy.tsv`.\n\n";
+    md << "| t | true pairs | verified pairs | true clusters | LSH clusters |\n|---:|---|---|---|---|\n";
+    for (std::size_t i = 0; i < results.size(); ++i) {
+      const auto& g = results[i];
+      if (g.point.k != src.ref_k || g.point.rows != src.ref_rows) {
+        continue;
+      }
+      const std::size_t ti = i % n_t;
+      const auto cell = [proxy_pairs](std::size_t in_proxy, std::size_t total) {
+        return ratio(in_proxy, total) + " / " + ratio(in_proxy, proxy_pairs);
+      };
+      md << "| " << tfix(g.point.threshold) << " | " << cell(true_proxy_pairs[ti], g.pairs.counts.similar) << " | "
+         << cell(g.verified_proxy, g.pairs.counts.verified) << " | "
+         << cell(proxy_true[ti].both_pairs, proxy_true[ti].lsh_pairs) << " | "
+         << cell(g.proxy_lsh.both_pairs, g.proxy_lsh.lsh_pairs) << " |\n";
+    }
+    md << "\n";
+  }
+
   md << "## The " << TOP_PAIRS << " true pairs with the highest J\n\n";
   md << "Ties by " << src.noun << " index. The shingles show whether quoted text or boilerplate makes the pairs "
         "similar.\n\n";
@@ -1146,12 +1392,13 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
 
   // The merge figure data: the items of each worst merge at the MH-14 setting, and the reported pairs among them.
   std::ostringstream merges_tsv;
-  merges_tsv << tsv_licence() << meta.str() << "# threshold=" << fixed(demo::LSH_THRESHOLD, 1) << "\n"
+  merges_tsv << tsv_licence() << meta.str() << "# threshold=" << tfix(src.ref_threshold) << "\n"
              << "Merge\tKind\tSetting\tPost\tOther\tTrueCluster\tExactJ\tEstimatedJ\n";
   if (ref != nullptr) {
     const std::array<std::string, 2> setting{
-        "k" + std::to_string(demo::LSH_K) + "_b" + std::to_string(demo::LSH_BANDS) + "_r" + std::to_string(demo::LSH_ROWS),
-        "k" + std::to_string(COMPARE_K) + "_b" + std::to_string(COMPARE_K / COMPARE_ROWS) + "_r" + std::to_string(COMPARE_ROWS)};
+        "k" + std::to_string(src.ref_k) + "_b" + std::to_string(ref_bands) + "_r" + std::to_string(src.ref_rows),
+        "k" + std::to_string(src.compare_k) + "_b" + std::to_string(src.compare_k / src.compare_rows) + "_r" +
+            std::to_string(src.compare_rows)};
     for (std::size_t w = 0; w < ref->worst.size(); ++w) {
       std::vector<bool> member(n, false);
       for (std::size_t u = 0; u < n; ++u) {
@@ -1175,6 +1422,9 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   }
 
   write_file(out_dir / (src.stem + "_merges.tsv"), merges_tsv.str());
+  if (has_proxy) {
+    write_file(out_dir / (src.stem + "_proxy.tsv"), proxy_tsv.str());
+  }
   write_file(out_dir / (src.stem + "_bands.tsv"), bands_tsv.str());
   write_file(out_dir / (src.stem + "_sample_clusters.tsv"), sample_tsv.str());
   write_file(out_dir / (src.stem + "_heldout.tsv"), heldout_tsv.str());
@@ -1190,7 +1440,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   std::cout << "pair check: " << grid.size() - pair_failed << " of " << grid.size() << " pass\n";
   for (const auto& g : results) {
     if (!g.pairs.pass) {
-      std::cout << "  FAIL k = " << g.point.k << ", r = " << g.point.rows << ", t = " << fixed(g.point.threshold, 1)
+      std::cout << "  FAIL k = " << g.point.k << ", r = " << g.point.rows << ", t = " << tfix(g.point.threshold)
                 << ": recall p " << general(g.pairs.p_recall) << ", precision p " << general(g.pairs.p_precision)
                 << "\n";
     }

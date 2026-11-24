@@ -30,6 +30,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -89,10 +90,37 @@ demo::full_source load(const fs::path& data_dir, bool smoke) {
   src.sample_note = "the demo::sample_indices sample";
   src.archive_sha256 = PARQUET_SHA256;
   src.shingle_words = 1;
+  src.shingle_source = "in the agent's own tool-call arguments (the text that `analysis/trajectory_action_text.py` writes; "
+                       "tool replies are not used)";
+  src.shingle_sets = "the word sets of the action text (`demo::words`, MH-E decision 1)";
+  // CD-416 owner decisions of 24 Nov 2026.
+  src.rows = {4, 8, 16};  // r = 2 is left out: at background J of about 0.27, almost every pair is a candidate
+  src.thresholds = {0.4, 0.45, 0.5, 0.55, 0.6};
+  src.ref_k = 128;  // the MH-E1 values: t = 0.4, k = 128, (b, r) = (32, 4)
+  src.ref_rows = 4;
+  src.ref_threshold = 0.4;
+  src.ref_label = "MH-E1 setting";
+  src.compare_k = 512;
+  src.compare_rows = 4;
+  src.floor = 0.35;
+  src.pair_test_in_overall = false;
+  src.pair_test_note =
+      "The correlation is strong here, because all trajectories share a common vocabulary (the background J is "
+      "about 0.27). A smoke-run diagnosis (2,000 trajectories, k = 128, 30 sketch seeds, a pair counted when "
+      "Ĵ ≥ t) found that the mean counts over the seeds match the model, for example 1,954 against 1,951 verified "
+      "true pairs at t = 0.4, but their spread is 5 to 400 times the independent-pair SD. So the p-values below say "
+      "little, and `Overall` covers only the prefix assert, the identical-set check and the index-consistency "
+      "assert. A better test is future work.\n\n";
+  src.proxy_title = "Same-instance proxy";
+  src.proxy_text =
+      "The data has no similarity labels. The proxy says that two trajectories of the same task instance are "
+      "related. It is not the truth of this report (the truth is exact J ≥ t), and different instances can still "
+      "share a near-identical path.";
   const auto chosen = demo::full_chosen(trajs.size(), smoke);
   src.loaded = trajs.size();
   src.chosen = chosen.size();
   std::vector<std::string> keys;  // the word set as one string
+  std::map<std::string, std::size_t> group_of;  // instance_id -> its first node
   for (const std::size_t d : chosen) {
     auto set = news20::shingles(demo::words(trajs[d].text), 1);
     if (!set.empty()) {
@@ -104,6 +132,7 @@ demo::full_source load(const fs::path& data_dir, bool smoke) {
       src.item_of.push_back(d);
       src.sets.push_back(std::move(set));
       src.names.push_back(trajs[d].instance + "/" + trajs[d].id);
+      src.proxy_group.push_back(group_of.emplace(trajs[d].instance, src.sets.size() - 1).first->second);
     }
   }
   src.external = demo::check_pairs(keys, 0, 0);  // the pairs of indexed trajectories with identical word sets

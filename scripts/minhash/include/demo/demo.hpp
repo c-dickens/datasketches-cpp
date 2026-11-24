@@ -396,6 +396,21 @@ struct full_source {
   std::string external_label;   // "cross-post pairs"
   std::string external_column;  // of the clusters TSV: "CrossPostsSplit"
   std::string bands_extra;      // Markdown after the band figure, or empty
+  // The grid and the settings. The defaults are the MH-14b values; MH-15b (trajectories) changes them.
+  std::vector<unsigned> rows{FULL_ROWS.begin(), FULL_ROWS.end()};
+  std::vector<double> thresholds{FULL_THRESHOLDS.begin(), FULL_THRESHOLDS.end()};
+  uint16_t ref_k = LSH_K;                   // the reference setting of the cluster sections
+  unsigned ref_rows = LSH_ROWS;
+  double ref_threshold = LSH_THRESHOLD;
+  std::string ref_label = "MH-14 setting";
+  uint16_t compare_k = 512;                 // the bottom row of the merge figure
+  unsigned compare_rows = 2;
+  double floor = 0.0;                       // > 0: store only the pairs with J >= floor, count the others in bins
+  bool pair_test_in_overall = true;         // false: the pair check is report only
+  std::string pair_test_note;               // Markdown after the pair check text, or empty
+  std::vector<std::size_t> proxy_group;     // non-empty: the proxy group of node u, for a report-only section
+  std::string proxy_title;                  // "Same-instance proxy"
+  std::string proxy_text;                   // the paragraph under it
 };
 
 /// Makes a full_source for `data_dir`. smoke is true for --smoke.

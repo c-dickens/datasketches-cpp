@@ -21,6 +21,8 @@
 # demos, and runs them. Later tickets add their demos here.
 # FULL=1 also runs the full-data LSH checks on 20 Newsgroups (MH-14b) and on
 # Reuters-21578 (MH-14c). Each takes about 15 minutes without its exact-pair cache.
+# TRAJECTORIES=1 (with FULL=1) also runs it on the agent trajectories (MH-15b). It needs
+# data/trajectories.parquet (data/get_trajectories.sh), and the data bridge writes the action text.
 
 set -euo pipefail
 
@@ -46,12 +48,15 @@ build/lsh_20news data/20_newsgroups results/lsh_20news.md
 full_check() {  # program and file stem, data directory
   local cache="data/$1_exact_pairs.tsv"
   local packed="results/$1_exact_pairs.tsv.gz"
+  local low="$1_exact_pairs_low.tsv"  # the pair counts below a floor, if the program uses one
+  if [ -f "results/$low" ]; then cp "results/$low" "data/$low"; fi
   # Unpack the committed cache when data/ has none, or one that differs from it (an older revision, or a
   # damaged file). The program runs the exact pass only if the header does not match its input.
   if [ -f "$packed" ] && ! cmp -s <(gunzip -c "$packed") "$cache" 2>/dev/null; then
     gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
   fi
   "build/$1" "$2" results
+  if [ -f "data/$low" ]; then cp "data/$low" "results/$low"; fi
   # Repack only when the pairs changed: gzip implementations give other bytes for the same input.
   if [ ! -f "$packed" ] || ! cmp -s <(gunzip -c "$packed") "$cache"; then
     gzip -9nc "$cache" > "$packed"
@@ -66,4 +71,10 @@ if [ "${FULL:-0}" = 1 ]; then
   echo "== Reuters-21578: full-data LSH check =="
   data/get_reuters.sh
   full_check lsh_reuters_full data/reuters21578
+
+  if [ "${TRAJECTORIES:-0}" = 1 ]; then
+    echo "== Agent trajectories: full-data LSH check =="
+    uv run analysis/trajectory_action_text.py
+    full_check lsh_trajectories_full data/trajectories_action_text
+  fi
 fi
