@@ -47,7 +47,9 @@ if [ "${FULL:-0}" = 1 ]; then
   echo "== 20 Newsgroups: full-data LSH check =="
   cache=data/lsh_20news_full_exact_pairs.tsv
   packed=results/lsh_20news_full_exact_pairs.tsv.gz
-  if [ ! -f "$cache" ] && [ -f "$packed" ]; then
+  # Unpack the committed cache when data/ has none, or one with another header (its first 6 lines),
+  # for example from an older revision. The program runs the exact pass only if neither matches.
+  if [ -f "$packed" ] && ! cmp -s <(head -n 6 "$cache" 2>/dev/null) <(gunzip -c "$packed" | head -n 6); then
     gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
   fi
   build/lsh_20news_full data/20_newsgroups results
