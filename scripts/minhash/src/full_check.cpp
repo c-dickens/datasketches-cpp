@@ -311,7 +311,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   const std::string header = demo::exact_pairs_header(
       src.stem + " exact pairs (" + src.ticket + "): i, j, |A n B|, |A u B| of each pair of indexed " + src.nouns +
           " with J > 0",
-      src.archive_sha256, news20::SHINGLE_WORDS, n, demo::input_fingerprint(post_of, sets));
+      src.archive_sha256, src.shingle_words, n, demo::input_fingerprint(post_of, sets));
   const auto exact_start = steady::now();
   std::vector<demo::exact_pair> exact;
   bool loaded = false;
@@ -882,7 +882,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         "stronger than the two inequalities.\n\n";
   md << "## Data\n\n";
   md << "- " << src.nouns << ": " << src.chosen << (smoke ? " (" + src.sample_note + ")" : "") << "\n";
-  md << "- indexed " << src.nouns << " (at least one shingle of " << news20::SHINGLE_WORDS << " words): " << n << "\n";
+  md << "- indexed " << src.nouns << " (at least one shingle of " << src.shingle_words << (src.shingle_words == 1 ? " word" : " words") << "): " << n << "\n";
   md << "- pairs of indexed " << src.nouns << ": " << n * (n - 1) / 2 << "\n";
   md << "- pairs with exact J > 0 (stored in the exact-pair cache): " << n_pairs << "\n";
   md << "- grid: k ∈ {64, 128, 256, 512, 1024}, r ∈ {2, 4, 8, 16}, b = k / r, t ∈ {0.3, …, 0.9}: " << grid.size()

@@ -384,6 +384,7 @@ struct full_source {
   std::string shingle_source;   // where the shingle words come from: "after the header block of the post is removed"
   std::string shingle_sets;     // in the Truth sentence: "the MH-8 shingle sets"
   std::string archive_sha256;   // of the downloaded archive, for the cache header
+  std::size_t shingle_words = 5;  // the words in one shingle: news20::SHINGLE_WORDS, or 1 for trajectories
   std::size_t loaded = 0;       // the items in the load order
   std::size_t chosen = 0;       // the items used: all, or with --smoke, the sample
   std::vector<std::size_t> item_of;              // node u is item item_of[u] of the load order

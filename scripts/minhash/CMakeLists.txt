@@ -68,6 +68,10 @@ add_executable(lsh_reuters_full src/lsh_reuters_full.cpp)
 target_link_libraries(lsh_reuters_full PRIVATE demo)
 target_compile_options(lsh_reuters_full PRIVATE ${DEMO_WARNINGS})
 
+add_executable(lsh_trajectories_full src/lsh_trajectories_full.cpp)
+target_link_libraries(lsh_trajectories_full PRIVATE demo)
+target_compile_options(lsh_trajectories_full PRIVATE ${DEMO_WARNINGS})
+
 # The characterisation harness (MH-16). The TSV metadata records the commit, the compiler and
 # the flags. The commit is read at configure time, so reconfigure before a run.
 execute_process(COMMAND git rev-parse HEAD

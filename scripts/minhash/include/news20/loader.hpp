@@ -54,8 +54,8 @@ std::string strip_header(const std::string& text);
 /// Returns an empty string if the header block has no such line.
 std::string message_id(const std::string& text);
 
-/// Converts ASCII letters to lower case, and splits on every byte that is not
-/// an ASCII letter or digit. Empty words are dropped.
+/// The word tokenizer demo::words (demo/words.hpp): ASCII letters to lower case, split on
+/// every byte that is not an ASCII letter or digit, empty words dropped.
 std::vector<std::string> tokenize(const std::string& text);
 
 /// Makes the shingles of a word list: each run of `width` consecutive words,

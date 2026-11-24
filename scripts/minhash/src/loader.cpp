@@ -19,6 +19,8 @@
 
 #include "news20/loader.hpp"
 
+#include "demo/words.hpp"
+
 #include <algorithm>
 #include <fstream>
 #include <iterator>
@@ -29,10 +31,6 @@
 namespace news20 {
 
 namespace {
-
-bool is_ascii_alnum(unsigned char c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
-}
 
 char ascii_lower(unsigned char c) {
   return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : static_cast<char>(c);
@@ -116,21 +114,7 @@ std::string message_id(const std::string& text) {
 }
 
 std::vector<std::string> tokenize(const std::string& text) {
-  std::vector<std::string> words;
-  std::string word;
-  for (const char ch : text) {
-    const auto c = static_cast<unsigned char>(ch);
-    if (is_ascii_alnum(c)) {
-      word.push_back(ascii_lower(c));
-    } else if (!word.empty()) {
-      words.push_back(word);
-      word.clear();
-    }
-  }
-  if (!word.empty()) {
-    words.push_back(word);
-  }
-  return words;
+  return demo::words(text);
 }
 
 std::vector<std::string> shingles(const std::vector<std::string>& words, std::size_t width) {
