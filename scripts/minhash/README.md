@@ -197,10 +197,13 @@ candidate with Ĵ ≥ t. It writes these files, which are committed:
 - `results/lsh_20news_full_estimates.tsv`: the error of Ĵ for each k.
 - `results/lsh_20news_full.md`: the summary, with the figures and the last
   line `Overall: PASS` or `Overall: FAIL`.
-- `results/lsh_20news_full_*.svg`: the 5 figures of the summary, from
+- `results/lsh_20news_full_*.svg`: the 6 figures of the summary, from
   `plots/lsh_20news_full.py`: the pair and cluster precision–recall curves,
   a table of colour of recall and precision, the counts against the theory,
-  and the estimate error against k.
+  the estimate error against k, and the 5 worst merges drawn as graphs.
+- `results/lsh_20news_full_merges.tsv`: the posts and reported pairs of the
+  5 worst merges at k = 128, 32 × 4, t = 0.5, and the same posts at k = 512,
+  256 × 2, for the merge figure.
 - `results/lsh_20news_full_exact_pairs.tsv.gz`: the exact-pair cache (below).
 
 `Overall: PASS` needs 3 checks:

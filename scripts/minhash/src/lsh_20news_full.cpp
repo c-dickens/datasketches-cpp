@@ -76,6 +76,10 @@ const char* const ARCHIVE_SHA256 = "ab7bbf82b7831f7dbb1a09d9312f66fa78565c8de255
 
 constexpr std::size_t TOP_PAIRS = 20;
 constexpr std::size_t SHARED_SHINGLES = 3;
+// The merge figure shows the worst merges of the MH-14 setting, and the same posts at this larger k
+// (the recommended k at t = demo::LSH_THRESHOLD in the report).
+constexpr uint16_t COMPARE_K = 512;
+constexpr unsigned COMPARE_ROWS = 2;
 
 namespace fs = std::filesystem;
 using datasketches::minhash_lsh_index;
@@ -317,6 +321,14 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   const std::size_t n_rows = demo::FULL_ROWS.size();
   const std::size_t n_t = demo::FULL_THRESHOLDS.size();
   std::vector<grid_result> results(grid.size());
+  // The reported pairs of the MH-14 setting [0] and of COMPARE_K, COMPARE_ROWS [1], at t = LSH_THRESHOLD.
+  struct reported_pairs {
+    demo::edge_list edges;
+    std::vector<double> exact;
+    std::vector<double> estimate;
+    std::vector<std::size_t> lsh_label;
+  };
+  std::array<reported_pairs, 2> saved{};
   std::vector<estimate_row> estimates(demo::FULL_K_VALUES.size());
   std::vector<std::vector<uint64_t>> max_signature(n);
   std::size_t prefix_checked = 0;
@@ -434,6 +446,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         std::size_t reported_disjoint = 0;
         demo::edge_list edges;
         std::vector<double> edge_j;
+        std::vector<double> edge_estimate;
         for (std::size_t c = 0; c < candidates.size(); ++c) {
           if (candidate_estimate[c] < t) {
             continue;
@@ -449,12 +462,17 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
             edge_j.push_back(exact_j[it->second]);
           }
           edges.emplace_back(u, v);
+          edge_estimate.push_back(candidate_estimate[c]);
         }
         const auto tail_start = steady::now();
         g.pairs = demo::check_pair_tests(exact_j, prob[ri * n_t + ti], reported, reported_disjoint, t, test_alpha);
         tail_seconds += seconds_since(tail_start);
 
         const auto lsh_label = demo::components(n, edges);
+        if (t == demo::LSH_THRESHOLD && ((k == demo::LSH_K && rows == demo::LSH_ROWS) ||
+                                         (k == COMPARE_K && rows == COMPARE_ROWS))) {
+          saved[k == demo::LSH_K ? 0 : 1] = reported_pairs{edges, edge_j, edge_estimate, lsh_label};
+        }
         // Consistency: the components of the reported pairs are the clusters of the index.
         minhash_lsh_index index(bands, t);
         for (std::size_t u = 0; u < n; ++u) {
@@ -706,6 +724,16 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
          << " |\n";
     }
     md << "\n";
+    md << "![The worst merges as graphs](lsh_20news_full_merges.svg)\n\n";
+    md << "How to read it: each column is one merge of the table above, in the same order. Each dot is a post, "
+          "coloured by its true cluster at t = "
+       << fixed(demo::LSH_THRESHOLD, 1)
+       << ". Each line is a reported pair, labelled with its exact J. A grey line joins posts of one true cluster. "
+          "A red line has J < t, so it is a false link that joins 2 true clusters, and the thickest red line is the "
+          "weakest link. The top row is the MH-14 setting (k = "
+       << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << "). The bottom row shows the same posts at k = "
+       << COMPARE_K << ", " << COMPARE_K / COMPARE_ROWS << " × " << COMPARE_ROWS
+       << ", with only the pairs among these posts. The data is in `lsh_20news_full_merges.tsv`.\n\n";
   }
 
   md << "## The " << TOP_PAIRS << " true pairs with the highest J\n\n";
@@ -728,6 +756,43 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "\n";
   md << "Overall: " << verdict(overall) << "\n";
 
+  // The merge figure data: the posts of each worst merge at the MH-14 setting, and the reported pairs among them.
+  std::ostringstream merges_tsv;
+  merges_tsv << tsv_licence() << meta.str() << "# threshold=" << fixed(demo::LSH_THRESHOLD, 1) << "\n"
+             << "Merge\tKind\tSetting\tPost\tOther\tTrueCluster\tExactJ\tEstimatedJ\n";
+  if (ref != nullptr) {
+    const auto post_name = [&posts, &post_of](std::size_t u) {
+      return posts[post_of[u]].group + "/" + posts[post_of[u]].id;
+    };
+    const auto t_index = static_cast<std::size_t>(
+        std::find(demo::FULL_THRESHOLDS.begin(), demo::FULL_THRESHOLDS.end(), demo::LSH_THRESHOLD) -
+        demo::FULL_THRESHOLDS.begin());
+    const std::array<std::string, 2> setting{
+        "k" + std::to_string(demo::LSH_K) + "_b" + std::to_string(demo::LSH_BANDS) + "_r" + std::to_string(demo::LSH_ROWS),
+        "k" + std::to_string(COMPARE_K) + "_b" + std::to_string(COMPARE_K / COMPARE_ROWS) + "_r" + std::to_string(COMPARE_ROWS)};
+    for (std::size_t w = 0; w < ref->worst.size(); ++w) {
+      std::vector<bool> member(n, false);
+      for (std::size_t u = 0; u < n; ++u) {
+        if (saved[0].lsh_label[u] == ref->worst[w].lsh_root) {
+          member[u] = true;
+          merges_tsv << w + 1 << "\tnode\t-\t" << post_name(u) << "\t-\t" << post_name(true_label[t_index][u])
+                     << "\t-\t-\n";
+        }
+      }
+      for (std::size_t s = 0; s < saved.size(); ++s) {
+        for (std::size_t e = 0; e < saved[s].edges.size(); ++e) {
+          const auto& edge = saved[s].edges[e];
+          if (member[edge.first] && member[edge.second]) {
+            merges_tsv << w + 1 << "\tedge\t" << setting[s] << "\t" << post_name(edge.first) << "\t"
+                       << post_name(edge.second) << "\t-\t" << fixed(saved[s].exact[e], 4) << "\t"
+                       << fixed(saved[s].estimate[e], 4) << "\n";
+          }
+        }
+      }
+    }
+  }
+
+  write_file(out_dir / "lsh_20news_full_merges.tsv", merges_tsv.str());
   write_file(out_dir / "lsh_20news_full_pairs.tsv", pairs_tsv.str());
   write_file(out_dir / "lsh_20news_full_clusters.tsv", clusters_tsv.str());
   write_file(out_dir / "lsh_20news_full_estimates.tsv", estimates_tsv.str());
