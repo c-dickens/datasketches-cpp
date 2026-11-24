@@ -343,7 +343,8 @@ lines export or the DuckDB CLI.
 
 It starts with a self-check of its item rules on fixed data. Then, for each
 candidate item (files, commands, step symbols of width 1 to 5, word shingles
-of the action text of width 1, 2, 3 and 5, and two forms of patch lines), it
+of the action text of width 1, 2, 3 and 5, words of the action text cut by the
+20 Newsgroups tokenizer with width 1 and 2, and two forms of patch lines), it
 computes the exact set and weighted Jaccard of
 related pairs (same task instance), hard negatives (same repo, different task
 instance) and unrelated pairs (different repos). It applies the fixed rules of
