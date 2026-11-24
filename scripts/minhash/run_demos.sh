@@ -53,6 +53,9 @@ if [ "${FULL:-0}" = 1 ]; then
     gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
   fi
   build/lsh_20news_full data/20_newsgroups results
-  gzip -9nc "$cache" > "$packed"
+  # Repack only when the pairs changed: gzip implementations give other bytes for the same input.
+  if [ ! -f "$packed" ] || ! cmp -s <(gunzip -c "$packed") "$cache"; then
+    gzip -9nc "$cache" > "$packed"
+  fi
   uv run plots/lsh_20news_full.py results
 fi
