@@ -208,7 +208,9 @@ candidate with Ĵ ≥ t. It writes these files, which are committed:
 - **Pair check.** At each grid point, the count of reported true pairs and the
   count of reported false pairs are tested against their theory with the
   exact Poisson-binomial p-value, at a family-wise α of 10⁻⁶ over the 280
-  tests. P(reported | J) is the joint probability that some band is all-equal
+  tests. The test treats the pairs as independent. Pairs that share a post
+  are positively correlated, so the real false-FAIL rate is higher than 10⁻⁶;
+  the report gives the smallest p-value, so the margin is visible. P(reported | J) is the joint probability that some band is all-equal
   and at least ⌈t k⌉ slots are equal. It is not the product of the two
   probabilities, because both use the same slots.
 - **Prefix assert.** Slot i does not depend on k, so each signature must equal

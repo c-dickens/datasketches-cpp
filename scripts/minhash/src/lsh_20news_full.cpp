@@ -580,7 +580,13 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "against Σ P(reported | J) over the pairs with 0 < J < t (precision). Pairs with J = 0 add 0. A test passes "
         "when p ≥ "
      << general(demo::FULL_ALPHA) << " / " << 2 * grid.size() << " = " << general(test_alpha)
-     << ", so a correct index fails some test with a probability of at most " << general(demo::FULL_ALPHA) << ".\n\n";
+     << ". If the pairs were independent, a correct index would fail some test with a probability of at most "
+     << general(demo::FULL_ALPHA)
+     << ". They are not: pairs that share a post use the same signature, so their outcomes are positively "
+        "correlated, the counts spread more than the Poisson-binomial allows, and the p-values are too small. So "
+        "this bound is not exact. The margin here is wide: the smallest p-value is in "
+        "`lsh_20news_full_pairs.tsv` and the figure below. MH-14 checks the S-curve on independent synthetic pairs "
+        "for this reason.\n\n";
   md << "![Measured counts against the theory, and all p-values](lsh_20news_full_theory.svg)\n\n";
   md << "How to read it: on the left, each dot is one count at one grid point. A dot on the line means that the "
         "measured count equals the theory. On the right, the p-values of all tests are sorted. A test fails only "
