@@ -565,6 +565,40 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-14b. The tables for every "
         "grid point are in `lsh_20news_full_pairs.tsv`, `lsh_20news_full_clusters.tsv` and "
         "`lsh_20news_full_estimates.tsv`. `plots/lsh_20news_full.py` draws the figures from them.\n\n";
+  md << "## Definitions\n\n";
+  md << "- **Data point:** one post. It is the set of its " << news20::SHINGLE_WORDS
+     << "-word shingles: runs of " << news20::SHINGLE_WORDS
+     << " consecutive lower-case words, after the header block of the post is removed. An indexed post has at "
+        "least 1 shingle.\n";
+  md << "- **Pair:** two different indexed posts, in any order.\n";
+  md << "- **Exact J:** |A ∩ B| / |A ∪ B| of the two shingle sets. **Estimated J (Ĵ):** the share of the k slots "
+        "whose values are equal.\n";
+  md << "- **True pair at t:** a pair with exact J ≥ t.\n";
+  md << "- **Candidate pair:** a pair whose band keys are equal in at least 1 band.\n";
+  md << "- **Verified pair:** a candidate pair with Ĵ ≥ t. The TSV columns `Reported`, `ReportedTrue` and "
+        "`ReportedFalse`, and the word \"reported\" in the figures, mean the verified pairs.\n";
+  md << "- **Pair recall:** verified true pairs ÷ true pairs. **Pair precision:** verified true pairs ÷ verified "
+        "pairs.\n";
+  md << "- **True cluster:** a connected group of 2 or more posts that true pairs link. **LSH cluster:** a connected "
+        "group of 2 or more posts that verified pairs link (`get_duplicate_clusters()`).\n";
+  md << "- **Co-membership pair:** two posts in the same cluster. It includes posts that only a chain links, so "
+        "their exact J can be below t.\n";
+  md << "- **Cluster recall:** the co-membership pairs that are in the true clusters and in the LSH clusters ÷ the "
+        "co-membership pairs of the true clusters. **Cluster precision:** the same count ÷ the co-membership pairs "
+        "of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a "
+        "cluster counts every pair that a chain links.\n";
+  md << "- **Merge:** an LSH cluster that joins 2 or more true clusters. Here a post in no true cluster counts as a "
+        "true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.\n\n";
+  md << "## LSH guarantee\n\n";
+  md << "An LSH family is (r, cr, p1, p2)-sensitive if pairs at distance d ≤ r collide with probability at least "
+        "p1, and pairs at distance d ≥ cr collide with probability at most p2. For MinHash the distance is the "
+        "Jaccard distance d = 1 − J. One slot collides with probability exactly J = 1 − d, so p1 = 1 − r and "
+        "p2 = 1 − cr. Bands amplify it. A pair is a candidate with probability f(J) = 1 − (1 − J^rows)^b. This "
+        "curve rises with J, so for any r and c, p1 = f(1 − r) and p2 = f(1 − c·r). For example, at 32 bands × 4 "
+        "rows: d ≤ 0.3 (J ≥ 0.7) gives p1 ≥ 0.9998; d ≥ 0.7 (J ≤ 0.3) gives p2 ≤ 0.2292.\n\n";
+  md << "In this definition, r is a distance radius. It is not the rows per band (r) of the grid. The S-curve check "
+        "(MH-14, MH-19) and the pair check of this report test f as an equality at many values of J, which is "
+        "stronger than the two inequalities.\n\n";
   md << "## Data\n\n";
   md << "- posts: " << chosen.size() << (smoke ? " (the MH-8 sample)" : "") << "\n";
   md << "- indexed posts (at least one shingle of " << news20::SHINGLE_WORDS << " words): " << n << "\n";
@@ -573,9 +607,9 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   md << "- grid: k ∈ {64, 128, 256, 512, 1024}, r ∈ {2, 4, 8, 16}, b = k / r, t ∈ {0.3, …, 0.9}: " << grid.size()
      << " points\n\n";
   md << "Truth: a true pair at t has exact J ≥ t, with J from `news20::jaccard` on the MH-8 shingle sets. The true "
-        "clusters at t are the connected components of the true pairs. Reported pairs: the candidates (equal band keys "
+        "clusters at t are the connected components of the true pairs. Verified pairs: the candidates (equal band keys "
         "in at least one band) with Ĵ ≥ t. The LSH clusters are `get_duplicate_clusters()`. The program asserts, at "
-        "each grid point, that the components of the reported pairs equal them.\n\n";
+        "each grid point, that the components of the verified pairs equal them.\n\n";
 
   md << "## Prefix assert: " << verdict(prefix_pass) << "\n\n";
   md << "Each sketch is built directly at its k. For each k < 1024 and each indexed post, the k signature must equal "
@@ -590,12 +624,12 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
 
   md << "## Pair check: " << (pair_failed == 0 ? "PASS" : "FAIL") << " (" << grid.size() - pair_failed << " of "
      << grid.size() << " grid points pass)\n\n";
-  md << "P(reported | J) is the joint probability that some band is all-equal and at least m = ⌈t k⌉ slots are "
+  md << "P(verified | J) is the joint probability that some band is all-equal and at least m = ⌈t k⌉ slots are "
         "equal, with each slot equal independently with probability J. It is Σ_{s ≥ m} P(Binomial(k, J) = s) q(s), "
         "where q(s) is the probability that s uniformly placed equal slots fill some band (a dynamic program over the "
         "bands). At each grid point, two counts are tested with the exact two-sided Poisson-binomial p-value: the "
-        "reported true pairs against Σ P(reported | J) over the true pairs (recall), and the reported false pairs "
-        "against Σ P(reported | J) over the pairs with 0 < J < t (precision). Pairs with J = 0 add 0. A test passes "
+        "verified true pairs against Σ P(verified | J) over the true pairs (recall), and the verified false pairs "
+        "against Σ P(verified | J) over the pairs with 0 < J < t (precision). Pairs with J = 0 add 0. A test passes "
         "when p ≥ "
      << general(demo::FULL_ALPHA) << " / " << 2 * grid.size() << " = " << general(test_alpha)
      << ". If the pairs were independent, a correct index would fail some test with a probability of at most "
@@ -715,7 +749,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
     md << "- largest LSH cluster: " << cm.largest_lsh << " posts; largest true cluster: " << cm.largest_true
        << " posts\n\n";
     md << "The " << demo::WORST_MERGES
-       << " worst merges (most true components, then most posts), each with its weakest link: the reported pair of the "
+       << " worst merges (most true components, then most posts), each with its weakest link: the verified pair of the "
           "cluster with the lowest exact J.\n\n";
     md << "| true components | posts | weakest link | exact J | 3 shared shingles |\n|---:|---:|---|---:|---|\n";
     for (const auto& w : ref->worst) {
@@ -728,7 +762,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
     md << "How to read it: each column is one merge of the table above, in the same order. Each dot is a post, "
           "coloured by its true cluster at t = "
        << fixed(demo::LSH_THRESHOLD, 1)
-       << ". Each line is a reported pair, labelled with its exact J. A grey line joins posts of one true cluster. "
+       << ". Each line is a verified pair, labelled with its exact J. A grey line joins posts of one true cluster. "
           "A red line has J < t, so it is a false link that joins 2 true clusters, and the thickest red line is the "
           "weakest link. The top row is the MH-14 setting (k = "
        << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << "). The bottom row shows the same posts at k = "
