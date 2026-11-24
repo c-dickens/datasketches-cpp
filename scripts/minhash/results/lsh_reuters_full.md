@@ -34,6 +34,18 @@ Written by `build/lsh_reuters_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-
 - **Co-membership pair:** two documents in the same cluster. It includes documents that only a chain links, so their exact J can be below t.
 - **Cluster recall:** the co-membership pairs that are in the true clusters and in the LSH clusters ÷ the co-membership pairs of the true clusters. **Cluster precision:** the same count ÷ the co-membership pairs of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a cluster counts every pair that a chain links.
 - **Merge:** an LSH cluster that joins 2 or more true clusters. Here a document in no true cluster counts as a true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.
+- **Index set and query set:** the held-out check splits the indexed documents in two. A document goes to the index set when XXHash64 of its document index (8 bytes, seed 2) is even, and to the query set otherwise. **Cross pair:** a pair with one document in each set. **Query hit rate:** of the queries with at least 1 true cross pair, the share that get at least 1 verified true cross pair.
+- **Kept set:** the documents that deduplication keeps: the smallest document of each cluster, and every document in no cluster. **Wrongly removed:** a document that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a document that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters.
+
+## How deduplication works
+
+MinHash does not store the documents or their items. The index keeps a copy of each document's sketch, which is its k slot values, and a table of band keys, so that it can find likely near-duplicates fast. What to do with them, here deduplication, is the next step.
+
+1. LSH finds the candidate pairs, and the program estimates Ĵ for each one.
+2. A pair with Ĵ ≥ t is a near-duplicate, so it becomes a link. A pair below t is not a duplicate, so no link is made. The pruning removes links, not documents.
+3. The links form clusters, which are groups of near-copies.
+4. Deduplication keeps one document from each cluster and removes the others. A document in no cluster is kept as it is.
+5. The downstream task, for example training or analysis, gets the kept documents.
 
 ## LSH guarantee
 
@@ -149,6 +161,23 @@ How to read it: the dots are the measured verified rate of each band, and the li
 
 How to read it: the verified rate of each J band at k = 128, 32 × 4, t = 0.5, on 20 Newsgroups (blue, from `lsh_20news_full_bands.tsv`) and on Reuters-21578 (red). The dots are the measured rates, and the lines are the expected rates of each dataset. The 2 expected lines differ a little in the steep bands near t, because the mix of J values inside a band differs between the datasets. A band with fewer pairs scatters more around its line; the pair counts are in the band tables of both reports.
 
+## Held-out queries
+
+The sections above index every document and cluster them, which is the use case "find near-copies inside a corpus". This section tests the other use case: build the index once, then query it with documents that it has never seen. The index holds only the index set (10492 documents). Each document of the query set (10348 documents) calls `query_candidates()`, and the candidates with Ĵ ≥ t are verified. The program asserts that the candidates equal the band-key bucket rule computed in the demo. Only the cross pairs count. The p-values are report only, with no PASS or FAIL. The data is in `lsh_reuters_full_heldout.tsv`.
+
+| setting | k | b × r | t | true cross pairs | query recall | in-sample recall | query precision | in-sample precision | verified true: measured / expected | verified false: measured / expected | p recall | p precision | query hit rate |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 397 | 0.9647 | 0.9547 | 0.9696 | 0.9756 | 383 / 383.9 | 12 / 9.2 | 0.866 | 0.381 | 0.9667 (348 of 360) |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 689 | 0.9536 | 0.9537 | 0.9605 | 0.9510 | 657 / 660.6 | 27 / 33.7 | 0.479 | 0.212 | 0.9702 (554 of 571) |
+| recommended at t = 0.4 | 256 | 64 × 4 | 0.4 | 469 | 0.9659 | 0.9699 | 0.9537 | 0.9524 | 453 / 452.2 | 22 / 14.6 | 0.951 | 0.0466 | 0.9695 (413 of 426) |
+| recommended at t = 0.5 | 64 | 32 × 2 | 0.5 | 397 | 0.9622 | 0.9623 | 0.9622 | 0.9598 | 382 / 382.9 | 15 / 18.1 | 0.882 | 0.498 | 0.9639 (347 of 360) |
+| recommended at t = 0.6 | 64 | 32 × 2 | 0.6 | 339 | 0.9794 | 0.9763 | 0.9794 | 0.9734 | 332 / 327.4 | 7 / 11.8 | 0.146 | 0.133 | 0.9870 (304 of 308) |
+| recommended at t = 0.7 | 128 | 16 × 8 | 0.7 | 285 | 0.9754 | 0.9789 | 0.9653 | 0.9755 | 278 / 276.2 | 10 / 6.9 | 0.594 | 0.268 | 0.9782 (269 of 275) |
+| recommended at t = 0.8 | 64 | 32 × 2 | 0.8 | 254 | 0.9803 | 0.9759 | 0.9803 | 0.9661 | 249 / 247.8 | 5 / 7.0 | 0.766 | 0.493 | 0.9800 (245 of 250) |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 211 | 0.9716 | 0.9667 | 0.9535 | 0.9644 | 205 / 206.5 | 10 / 10.1 | 0.539 | 1 | 0.9713 (203 of 209) |
+
+How to read it: query recall and precision should be close to the in-sample figures of the same setting, because a query document meets the same band keys and the same Ĵ test as an indexed document. The measured and expected counts should agree, as in the pair check. The query hit rate says how often a new document with a near-copy in the index finds at least one of them.
+
 ## Estimate error
 
 On the stored pairs with exact J ≥ 0.1. The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.
@@ -201,6 +230,25 @@ How to read it: each column is one merge of the table above, in the same order. 
 ![A random sample of the clusters as graphs](lsh_reuters_full_sample_clusters.svg)
 
 How to read it: each panel is one LSH cluster. Each dot is a document, coloured by its true cluster at t = 0.5, and a grey dot is in no true cluster. A solid line is a verified pair, labelled with its exact J, and it is red when J < t. A dashed line is a true pair (J ≥ t) between drawn documents that LSH did not verify; the chain still puts both documents in the cluster. The data is in `lsh_reuters_full_sample_clusters.tsv`.
+
+## Kept set (deduplication)
+
+The same deduplication runs twice at each grid point: once on the true clusters, and once on the LSH clusters. Each keeps the smallest document of each cluster and every document in no cluster. The comparison shows what LSH costs a downstream task: documents lost by mistake, and near-copies left in. All grid points are in `lsh_reuters_full_kept.tsv`.
+
+| setting | k | b × r | t | documents | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 20840 | 20129 | 20142 | 18 | 31 | 0.0009 | 0.0436 |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 20840 | 19732 | 19727 | 34 | 29 | 0.0017 | 0.0262 |
+| recommended at t = 0.4 | 256 | 64 × 4 | 0.4 | 20840 | 20012 | 19998 | 34 | 20 | 0.0017 | 0.0242 |
+| recommended at t = 0.5 | 64 | 32 × 2 | 0.5 | 20840 | 20129 | 20126 | 28 | 25 | 0.0014 | 0.0352 |
+| recommended at t = 0.6 | 64 | 32 × 2 | 0.6 | 20840 | 20236 | 20230 | 17 | 11 | 0.0008 | 0.0182 |
+| recommended at t = 0.7 | 128 | 16 × 8 | 0.7 | 20840 | 20299 | 20304 | 5 | 10 | 0.0002 | 0.0185 |
+| recommended at t = 0.8 | 64 | 32 × 2 | 0.8 | 20840 | 20360 | 20358 | 13 | 11 | 0.0006 | 0.0229 |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 20840 | 20431 | 20432 | 13 | 14 | 0.0006 | 0.0342 |
+
+![Data-loss rate against missed-duplicate rate](lsh_reuters_full_kept.svg)
+
+How to read it: one panel for each r, and one curve for each k, with a point for each t. Lower left is good. A point high on the y axis removes documents that have no near-copy (data loss, mostly from merges). A point far right keeps near-copies that should go (missed duplicates, mostly from splits).
 
 ## The 20 true pairs with the highest J
 

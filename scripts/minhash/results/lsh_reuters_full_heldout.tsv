@@ -1,0 +1,34 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ticket=MH-14c
+# smoke=0
+# indexed_posts=20840
+# pairs_j_gt_0=822287
+# family_alpha=1e-06
+# test_alpha=3.57e-09
+# heldout_seed=2
+# index_size=10492
+# query_size=10348
+Setting	K	R	B	T	TrueCross	VerifiedCross	VerifiedTrueCross	Recall	Precision	ExpectedTrue	ExpectedFalse	PRecall	PPrecision	QueriesWithMatch	QueriesHit	HitRate	InSampleRecall	InSamplePrecision
+MH-14 setting	128	4	32	0.5	397	395	383	0.9647	0.9696	383.93	9.18	0.866	0.381	360	348	0.9667	0.9547	0.9756
+recommended at t = 0.3	512	2	256	0.3	689	684	657	0.9536	0.9605	660.58	33.67	0.479	0.212	571	554	0.9702	0.9537	0.9510
+recommended at t = 0.4	256	4	64	0.4	469	475	453	0.9659	0.9537	452.23	14.59	0.951	0.0466	426	413	0.9695	0.9699	0.9524
+recommended at t = 0.5	64	2	32	0.5	397	397	382	0.9622	0.9622	382.89	18.05	0.882	0.498	360	347	0.9639	0.9623	0.9598
+recommended at t = 0.6	64	2	32	0.6	339	339	332	0.9794	0.9794	327.38	11.80	0.146	0.133	308	304	0.9870	0.9763	0.9734
+recommended at t = 0.7	128	8	16	0.7	285	288	278	0.9754	0.9653	276.23	6.87	0.594	0.268	275	269	0.9782	0.9789	0.9755
+recommended at t = 0.8	64	2	32	0.8	254	254	249	0.9803	0.9803	247.80	7.04	0.766	0.493	250	245	0.9800	0.9759	0.9661
+recommended at t = 0.9	64	2	32	0.9	211	215	205	0.9716	0.9535	206.55	10.06	0.539	1	209	203	0.9713	0.9667	0.9644
