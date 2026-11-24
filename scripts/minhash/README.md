@@ -60,6 +60,26 @@ The loader (`include/news20/loader.hpp`) does this for each post:
 shingle count. The total shingle count is the sum, over all posts, of the
 number of distinct shingles in each post.
 
+### Reuters-21578
+
+```bash
+data/get_reuters.sh
+```
+
+The script downloads Reuters-21578, Distribution 1.0 (21,578 news stories in 22
+`.sgm` files) into `data/`, and extracts it to `data/reuters21578/`. Git
+ignores the downloaded files. Only the full-data LSH check (MH-14c) uses it.
+
+- Source: the [UCI Machine Learning Repository](https://archive.ics.uci.edu/dataset/137/reuters+21578+text+categorization+collection),
+  over HTTPS. The script checks the SHA-256 of the zip and of the
+  `reuters21578.tar.gz` inside it. The values were recorded on the first
+  download.
+
+A document is one `<REUTERS>` element, in file order, then element order. Its
+text is the `<TITLE>` and the `<BODY>`, joined by a newline, with `&lt;`,
+`&gt;`, `&amp;` and `&#N;` decoded (`demo::parse_reuters_sgm`). The shingles
+are those of `news20::shingle_text`, so the results compare with 20 Newsgroups.
+
 ### Agent trajectories
 
 ```bash
@@ -255,6 +275,25 @@ into `results/` again (`gzip -9n`) after the run.
 with its own cache. Write its results to `results/smoke/`, which git ignores,
 because the program writes to the directory that you give it. It
 takes about 15 seconds.
+
+## Full-data LSH check on Reuters-21578 (MH-14c)
+
+```bash
+FULL=1 ./run_demos.sh
+build/lsh_reuters_full data/reuters21578 results
+build/lsh_reuters_full --smoke data/reuters21578 results/smoke
+```
+
+The same check as MH-14b, with the same grid, constants and figures, on a
+second public corpus. `demo::full_main` (`src/full_check.cpp`) runs the check
+for both programs. Each program gives it only its data, its names and its
+external check. The files are `results/lsh_reuters_full*`, as in MH-14b, and
+`uv run plots/lsh_20news_full.py results lsh_reuters_full` draws the figures.
+The exact-pair cache is `data/lsh_reuters_full_exact_pairs.tsv`.
+
+Reuters has no `Message-ID`, so the third check is **identical shingle sets**:
+each pair of indexed documents with identical shingle sets must be in one true
+cluster and in one LSH cluster, at every grid point.
 
 ## Band-key test vectors
 
