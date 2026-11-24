@@ -23,8 +23,8 @@
 # MH-E item analysis (MH-E1). Measures the candidate MinHash items of a
 # trajectory with exact Jaccard on the MH-15 sample, and applies the fixed
 # decision rules of the ticket. Run from the repo root:
-#   uv run scripts/minhash/analysis/mhe_explore.py [--instances N]
-# It reads scripts/minhash/data/trajectories.parquet and writes
+#   uv run scripts/minhash/analysis/mhe_explore.py [--instances N] [--parquet PATH]
+# It reads scripts/minhash/data/trajectories.parquet (or PATH) and writes
 # scripts/minhash/results/mhe_explore.md.
 
 import heapq
@@ -46,8 +46,10 @@ PARQUET = HERE / "data" / "trajectories.parquet"
 OUT = HERE / "results" / "mhe_explore.md"
 N_PAIRS = 50_000
 N_BOOT = 2000
-SIMPLICITY = ["files", "commands", "steps_w1", "steps_w2", "steps_w3", "steps_w4", "steps_w5", "action_text"]
-BEHAVIOUR = SIMPLICITY
+TEXT_WIDTHS = [1, 2, 3, 5]
+BEHAVIOUR = (["files", "commands"] + [f"steps_w{w}" for w in range(1, 6)]
+             + [f"action_text_w{w}" for w in TEXT_WIDTHS])
+J_LEVELS = [0.3, 0.5, 0.7]
 PATCH = ["patch_all", "patch_no_new"]
 K_CHOICES = [64, 128, 256]
 BR_TABLE = {64: [(1, 64), (2, 32), (4, 16), (8, 8), (16, 4), (32, 2), (64, 1)],
@@ -155,6 +157,18 @@ def auc(pos, neg, wpos=None, wneg=None):
     return float(np.sum(wpos * (less + 0.5 * (leq - less))) / den) if den > 0 else float("nan")
 
 
+def rank(aucs, med_j):
+    """Owner rule of 24 Nov 2026: (by AUC, within 0.02 of the best, rule order).
+
+    Rule order: the candidates within 0.02 AUC of the best by median related J
+    (ties: higher AUC), then the others by AUC. order[0] is the choice, order[1] the runner-up.
+    """
+    by_auc = sorted(aucs, key=lambda c: -aucs[c])
+    near = [c for c in by_auc if aucs[c] >= aucs[by_auc[0]] - 0.02]
+    order = sorted(near, key=lambda c: (-med_j[c], -aucs[c])) + [c for c in by_auc if c not in near]
+    return by_auc, near, order
+
+
 def self_check():
     root = "/workspace/o__r__1.0"
     assert strip_cd("cd /workspace/o__r__1.0 && python -m pytest", root) == "python -m pytest"
@@ -178,6 +192,7 @@ def self_check():
     assert auc([3, 2], [1, 2]) == 0.875
     assert auc([1], [2]) == 0.0
     assert shingles(["a", "b", "c"], 2) == ["a b", "b c"]
+    assert rank({"a": 0.99, "b": 0.98, "c": 0.90, "d": 0.95}, {"a": 0.1, "b": 0.4, "c": 0.9, "d": 0.5})[2] == ["b", "a", "d", "c"]
     # Plain Jaccard of the occurrence-encoded sets is the weighted Jaccard of the counts: 3 / 5.
     x, y = ["a", "a", "a", "b"], ["a", "b", "b", "c"]
     js, wjs = jaccards([item_counts(x), item_counts(y)], [(0, 1)])
@@ -246,7 +261,9 @@ def featurize(traj, model_patch, facts):
     bash_cmds = [c for c in commands if not c.startswith("editor:")]
     facts["traj"] += 1
     facts["traj_repeat_cmd"] += len(set(bash_cmds)) < len(bash_cmds)
-    out = {"files": files, "commands": commands, "action_text": shingles(words, 5)}
+    out = {"files": files, "commands": commands}
+    for w in TEXT_WIDTHS:
+        out[f"action_text_w{w}"] = shingles(words, w)
     for w in range(1, 6):
         out[f"steps_w{w}"] = shingles(symbols, w)
     patch = model_patch or ""
@@ -257,10 +274,10 @@ def featurize(traj, model_patch, facts):
     return out
 
 
-def load(instances, facts):
+def load(instances, facts, parquet):
     con = duckdb.connect()
     con.execute("SET threads TO 4")
-    src = f"read_parquet('{PARQUET}')"
+    src = f"read_parquet('{parquet}')"
     rows = con.execute(f"""
         WITH chosen AS (
           SELECT instance_id FROM {src} GROUP BY instance_id
@@ -396,15 +413,16 @@ def main():
     instances = 1000
     if "--instances" in sys.argv:
         instances = int(sys.argv[sys.argv.index("--instances") + 1])
+    parquet = Path(sys.argv[sys.argv.index("--parquet") + 1]) if "--parquet" in sys.argv else PARQUET
     start = time.time()
     self_check()
     print("mhe_explore: self-check passed", flush=True)
-    if not PARQUET.exists():
-        sys.exit(f"error: {PARQUET} is missing. Run scripts/minhash/data/get_trajectories.sh first.")
+    if not parquet.exists():
+        sys.exit(f"error: {parquet} is missing. Run scripts/minhash/data/get_trajectories.sh first.")
     facts = Counter()
     facts["patch_lines"] = []
     facts["patch_total_lines"] = []
-    meta, items_all, first40 = load(instances, facts)
+    meta, items_all, first40 = load(instances, facts, parquet)
     n = len(meta)
     print(f"mhe_explore: {n} trajectories loaded in {time.time() - start:.0f} s", flush=True)
     related, hard, unrel, by_inst, by_repo = build_pairs(meta)
@@ -438,40 +456,20 @@ def main():
                   "repeat": repeated / distinct if distinct else 0.0,
                   "wauc_hn": auc(wj["related"], wj["hard negative"]),
                   "auc_rrru": a_rrru, "ci": (lo, hi),
-                  "claim": a_rrru >= 0.6 and not (lo <= 0.5 <= hi)}
+                  "claim": a_rrru >= 0.6 and not (lo <= 0.5 <= hi),
+                  "share": {k: [float(np.mean(js[k] >= lv)) for lv in J_LEVELS] for k in ("related", "hard negative")}}
         store[c] = (js, wj, cl)
         print(f"mhe_explore: {c}: AUC {res[c]['auc_hn']:.3f}, {time.time() - start:.0f} s", flush=True)
 
-    # Q8 choice, Q15 stop, Q9, Q13.
-    lines = []
-    eligible = [c for c in BEHAVIOUR if res[c]["median"] >= 30]
-    stop15 = not any(res[c]["auc_hn"] >= 0.7 for c in BEHAVIOUR)
-    chosen = None
-    if eligible and not stop15:
-        top = max(res[c]["auc_hn"] for c in eligible)
-        near = [c for c in eligible if res[c]["auc_hn"] >= top - 0.02]
-        chosen = min(near, key=SIMPLICITY.index)
-    lines.append(f"1. Rank by AUC (related vs hard negative): "
-                 + ", ".join(f"{c} {res[c]['auc_hn']:.3f}" for c in sorted(BEHAVIOUR, key=lambda c: -res[c]['auc_hn'])) + ".")
-    lines.append("2. Median set size < 30, left out: "
-                 + (", ".join(f"{c} ({res[c]['median']:g})" for c in BEHAVIOUR if c not in eligible) or "none") + ".")
-    if stop15:
-        lines.append("**Q15 global stop:** no behaviour candidate reaches an AUC of 0.7 (related vs hard negative). "
-                     "No item is recommended.")
-    elif not eligible:
-        lines.append("No candidate is left after rule 2. No item is recommended.")
-    else:
-        lines.append(f"3. Best eligible AUC {top:.3f}. Within 0.02 of it: {', '.join(near)}. "
-                     f"The simplest of these is **{chosen}**.")
-        lines.append("4. The outcome-class AUCs (Q14) are reported in the table, and they do not take part in the choice.")
-    q9 = q13 = None
-    if chosen:
-        r = res[chosen]
+    # Q8 choice (owner correction of 24 Nov 2026), Q15 stop, Q9, Q13.
+    def derive(c):
+        """Q9 and Q13 for candidate c: (t, Q9 text, Q13 lines, counts mode)."""
+        r = res[c]
         counts_mode = r["wauc_hn"] - r["auc_hn"] >= 0.03
         q9 = (f"Set AUC {r['auc_hn']:.3f}, weighted AUC {r['wauc_hn']:.3f}, difference {r['wauc_hn'] - r['auc_hn']:+.3f}. "
               + ("The difference is 0.03 or more, so the recommendation is **counts** with the occurrence-number "
                  "encoding (`x#n`)." if counts_mode else "The difference is less than 0.03, so the recommendation is **plain sets**."))
-        js, wj, _ = store[chosen]
+        js, wj, _ = store[c]
         pos, neg = (wj["related"], wj["hard negative"]) if counts_mode else (js["related"], js["hard negative"])
         raw_t, youden = best_threshold(pos, neg)
         t = round(round(raw_t / 0.05) * 0.05, 2)
@@ -479,29 +477,52 @@ def main():
                f"{raw_t:.4f} (TPR − FPR = {youden:.3f}). Rounded to the nearest 0.05: **t = {t:.2f}**."]
         if t < 0.2:
             q13.append("**Q13 stop:** t < 0.2, so no (b, r) and no k are given. The owner decides.")
-        else:
-            k = next((k for k in K_CHOICES if np.sqrt(t * (1 - t) / k) <= 0.05), None)
-            q13.append("k: " + ", ".join(f"√(t(1−t)/{kk}) = {np.sqrt(t * (1 - t) / kk):.4f}" for kk in K_CHOICES)
-                       + (f". The smallest with ≤ 0.05 is **k = {k}**." if k else ". None is ≤ 0.05, so no k is given."))
-            if k:
-                mids = [(b, rr_, (1 - 0.5 ** (1 / b)) ** (1 / rr_)) for b, rr_ in BR_TABLE[k]]
-                ok = [x for x in mids if abs(x[2] - t) <= 0.05]
-                q13.append("(b, r) of the MH-19 table for k = " + str(k) + ", with the S-curve midpoint: "
-                           + ", ".join(f"({b}, {rr_}) {m:.3f}" for b, rr_, m in mids) + ".")
-                if ok:
-                    b, rr_, m = min(ok, key=lambda x: abs(x[2] - t))
-                    q13.append(f"Within 0.05 of t: {', '.join(f'({x[0]}, {x[1]})' for x in ok)}. "
-                               f"The closest to t: **(b, r) = ({b}, {rr_})**, midpoint {m:.3f}.")
-                else:
-                    q13.append("No (b, r) of the table has its midpoint within 0.05 of t.")
-        lines_t = t
+            return t, q9, q13, counts_mode
+        k = next((k for k in K_CHOICES if np.sqrt(t * (1 - t) / k) <= 0.05), None)
+        q13.append("k: " + ", ".join(f"√(t(1−t)/{kk}) = {np.sqrt(t * (1 - t) / kk):.4f}" for kk in K_CHOICES)
+                   + (f". The smallest with ≤ 0.05 is **k = {k}**." if k else ". None is ≤ 0.05, so no k is given."))
+        if k:
+            mids = [(b, rr_, (1 - 0.5 ** (1 / b)) ** (1 / rr_)) for b, rr_ in BR_TABLE[k]]
+            ok = [x for x in mids if abs(x[2] - t) <= 0.05]
+            q13.append("(b, r) of the MH-19 table for k = " + str(k) + ", with the S-curve midpoint: "
+                       + ", ".join(f"({b}, {rr_}) {m:.3f}" for b, rr_, m in mids) + ".")
+            if ok:
+                b, rr_, m = min(ok, key=lambda x: abs(x[2] - t))
+                q13.append(f"Within 0.05 of t: {', '.join(f'({x[0]}, {x[1]})' for x in ok)}. "
+                           f"The closest to t: **(b, r) = ({b}, {rr_})**, midpoint {m:.3f}.")
+            else:
+                q13.append("No (b, r) of the table has its midpoint within 0.05 of t.")
+        return t, q9, q13, counts_mode
+
+    lines = []
+    stop15 = not any(res[c]["auc_hn"] >= 0.7 for c in BEHAVIOUR)
+    by_auc, near, order = rank({c: res[c]["auc_hn"] for c in BEHAVIOUR}, {c: res[c]["med"]["related"] for c in BEHAVIOUR})
+    top = res[by_auc[0]]["auc_hn"]
+    chosen, runner = (None, None) if stop15 else (order[0], order[1] if len(order) > 1 else None)
+    lines.append("1. Rank by AUC (related vs hard negative): "
+                 + ", ".join(f"{c} {res[c]['auc_hn']:.3f}" for c in by_auc) + ".")
+    lines.append("2. No candidate is left out for its set size (owner correction of 24 Nov 2026). "
+                 "The set sizes are in the table of section 2.")
+    if stop15:
+        lines.append("**Q15 global stop:** no behaviour candidate reaches an AUC of 0.7 (related vs hard negative). "
+                     "No item is recommended.")
+    else:
+        lines.append(f"3. Best AUC {top:.3f}. Within 0.02 of it, with the median related J: "
+                     + ", ".join(f"{c} {res[c]['med']['related']:.3f}" for c in near)
+                     + f". The highest median related J is **{chosen}**.")
+        lines.append(f"4. Runner-up (the next candidate by the same rule: the near set by median related J, "
+                     f"then the others by AUC): **{runner}**.")
+        lines.append("5. The outcome-class AUCs (Q14) are reported in the table, and they do not take part in the choice.")
+    derived = {c: derive(c) for c in (chosen, runner) if c}
     # ------------------------------------------------------------ report
     R = []
     lic = Path(__file__).read_text().split("\n\n", 1)[0].replace("# ", "").replace("#", "")
     R.append("<!--\n" + lic.strip("\n") + "\n-->\n")
     R.append("# MH-E item analysis\n")
     R.append("Written by `uv run scripts/minhash/analysis/mhe_explore.py`. The ticket is MH-E1. "
-             "All pair statistics use exact Jaccard on the full message content of the pinned parquet file.\n")
+             "All pair statistics use exact Jaccard on the full message content of the pinned parquet file. "
+             "The owner correction of 24 Nov 2026 applies: action text widths 1, 2, 3 and 5, the shares of pairs "
+             "at J ≥ 0.3 / 0.5 / 0.7, the choice by median related J inside 0.02 AUC of the best, and the runner-up.\n")
     R.append("## 1. Sample\n")
     n_res = sum(m["resolved"] for m in meta)
     R.append(f"- Task instances: {len(by_inst)} (the first {instances} by `md5(instance_id)` with at least 1 resolved "
@@ -537,6 +558,12 @@ def main():
         for c in cands:
             out.append(f"| {c} | " + " | ".join(f"{fmt(res[c]['mean'][k])} / {fmt(res[c]['med'][k])}" for k in classes) + " |")
         out.append("")
+        out.append("Share of pairs with set J at or above each level (deduplication and LSH need pairs above t):\n")
+        out.append("| Candidate | " + " | ".join(f"{k} J ≥ {lv}" for k in ("related", "hard negative") for lv in J_LEVELS) + " |")
+        out.append("|---|" + "---|" * (2 * len(J_LEVELS)))
+        for c in cands:
+            out.append(f"| {c} | " + " | ".join(fmt(x) for k in ("related", "hard negative") for x in res[c]["share"][k]) + " |")
+        out.append("")
         out.append("Outcome claims (Q14): " + "; ".join(
             f"{c}: " + ("**an outcome difference is found**" if res[c]["claim"] else "no outcome difference is found with this item")
             for c in cands) + ".\n")
@@ -547,14 +574,18 @@ def main():
     R.append("Q8:\n")
     R += lines
     R.append("")
+    for label, c in (("Chosen", chosen), ("Runner-up", runner)):
+        if c:
+            t_c, q9, q13, _ = derived[c]
+            R.append(f"### {label}: {c}\n")
+            R.append(f"Q9: {q9}\n")
+            R.append("Q13:\n")
+            R += [f"- {x}" for x in q13]
+            R.append("")
     if chosen:
-        R.append(f"Q9: {q9}\n")
-        R.append("Q13:\n")
-        R += [f"- {x}" for x in q13]
-        R.append("")
+        lines_t, _, _, use_w = derived[chosen]
         R.append("## 4. Human check\n")
         js, wj, cl = store[chosen]
-        use_w = res[chosen]["wauc_hn"] - res[chosen]["auc_hn"] >= 0.03
         allp, seen = [], set()
         for k in ("related", "hard negative", "unrelated"):
             vals = wj[k] if use_w else js[k]

@@ -332,6 +332,8 @@ uvx marimo edit plots/accuracy_j.py
 uv run scripts/minhash/analysis/mhe_explore.py    # from the repo root
 ```
 
+Add `--parquet PATH` to read the parquet file from another place.
+
 The script (MH-E1) measures the candidate MinHash items of a trajectory, so
 that the owner can choose one in MH-E. It needs `data/trajectories.parquet`
 (run `data/get_trajectories.sh` first). It reads the full message content of
@@ -340,8 +342,9 @@ trajectories), with the `duckdb` Python package. It does not use the JSON
 lines export or the DuckDB CLI.
 
 It starts with a self-check of its item rules on fixed data. Then, for each
-candidate item (files, commands, step symbols of width 1 to 5, action text and
-two forms of patch lines), it computes the exact set and weighted Jaccard of
+candidate item (files, commands, step symbols of width 1 to 5, word shingles
+of the action text of width 1, 2, 3 and 5, and two forms of patch lines), it
+computes the exact set and weighted Jaccard of
 related pairs (same task instance), hard negatives (same repo, different task
 instance) and unrelated pairs (different repos). It applies the fixed rules of
 the ticket and writes `results/mhe_explore.md`, which is committed: the
