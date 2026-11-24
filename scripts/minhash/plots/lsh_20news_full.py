@@ -70,7 +70,7 @@ def _(LICENCE, estimates, mo, pairs, plt, results_dir):
                     ax.annotate(f"{p['T']:.1f}", (p["Recall"], p["Precision"]), fontsize=6,
                                 xytext=(3, 3), textcoords="offset points", color=colour)
             ax.set_xlim(0, 1.02)
-            ax.set_ylim(0, 1.02)
+            ax.set_ylim(int(pairs["Precision"].min() * 10) / 10, 1.005)  # the same scale in every panel
             ax.set_title(f"k = {k}")
             ax.set_xlabel("pair recall")
             ax.set_ylabel("pair precision")
