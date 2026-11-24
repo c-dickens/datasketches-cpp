@@ -1,0 +1,44 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ticket=MH-14c
+# smoke=0
+# indexed_posts=20840
+# pairs_j_gt_0=822287
+# family_alpha=1e-06
+# test_alpha=3.57e-09
+# threshold=0.5
+Merge	Kind	Setting	Post	Other	TrueCluster	ExactJ	EstimatedJ
+1	node	-	reut2-001/1309	-	reut2-001/1309	-	-
+1	node	-	reut2-011/11704	-	reut2-001/1309	-	-
+1	node	-	reut2-014/14579	-	reut2-014/14579	-	-
+1	edge	k128_b32_r4	reut2-001/1309	reut2-011/11704	-	0.5385	0.5703
+1	edge	k128_b32_r4	reut2-001/1309	reut2-014/14579	-	0.4495	0.5000
+1	edge	k128_b32_r4	reut2-011/11704	reut2-014/14579	-	0.4766	0.5391
+1	edge	k512_b256_r2	reut2-001/1309	reut2-011/11704	-	0.5385	0.5723
+2	node	-	reut2-003/3774	-	reut2-003/3774	-	-
+2	node	-	reut2-005/5085	-	reut2-005/5085	-	-
+2	edge	k128_b32_r4	reut2-003/3774	reut2-005/5085	-	0.4783	0.5000
+3	node	-	reut2-004/4025	-	reut2-004/4025	-	-
+3	node	-	reut2-007/7782	-	reut2-007/7782	-	-
+3	edge	k128_b32_r4	reut2-004/4025	reut2-007/7782	-	0.4583	0.5312
+4	node	-	reut2-006/6302	-	reut2-006/6302	-	-
+4	node	-	reut2-006/6308	-	reut2-006/6308	-	-
+4	edge	k128_b32_r4	reut2-006/6302	reut2-006/6308	-	0.3896	0.5156
+5	node	-	reut2-007/7682	-	reut2-007/7682	-	-
+5	node	-	reut2-007/7835	-	reut2-007/7835	-	-
+5	edge	k128_b32_r4	reut2-007/7682	reut2-007/7835	-	0.4800	0.6016
+5	edge	k512_b256_r2	reut2-007/7682	reut2-007/7835	-	0.4800	0.5352
