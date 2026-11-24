@@ -19,7 +19,7 @@ under the License.
 
 # Full-data precision and recall of the sketch and the LSH clusters on 20 Newsgroups
 
-Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-14b. The tables for every grid point are in `lsh_20news_full_pairs.tsv`, `lsh_20news_full_clusters.tsv` and `lsh_20news_full_estimates.tsv`, and the plot is `lsh_20news_full.svg`.
+Written by `build/lsh_20news_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-14b. The tables for every grid point are in `lsh_20news_full_pairs.tsv`, `lsh_20news_full_clusters.tsv` and `lsh_20news_full_estimates.tsv`. `plots/lsh_20news_full.py` draws the figures from them.
 
 ## Data
 
@@ -49,6 +49,10 @@ Each pair of indexed posts that share a `Message-ID` must be in one true cluster
 
 P(reported | J) is the joint probability that some band is all-equal and at least m = ⌈t k⌉ slots are equal, with each slot equal independently with probability J. It is Σ_{s ≥ m} P(Binomial(k, J) = s) q(s), where q(s) is the probability that s uniformly placed equal slots fill some band (a dynamic program over the bands). At each grid point, two counts are tested with the exact two-sided Poisson-binomial p-value: the reported true pairs against Σ P(reported | J) over the true pairs (recall), and the reported false pairs against Σ P(reported | J) over the pairs with 0 < J < t (precision). Pairs with J = 0 add 0. A test passes when p ≥ 1e-06 / 280 = 3.57e-09, so a correct index fails some test with a probability of at most 1e-06.
 
+![Measured counts against the theory, and all p-values](lsh_20news_full_theory.svg)
+
+How to read it: on the left, each dot is one count at one grid point. A dot on the line means that the measured count equals the theory. On the right, the p-values of all tests are sorted. A test fails only below the red line.
+
 ## Recommended k
 
 For each t: the smallest k with a (b, r) whose pair recall and pair precision are both ≥ 0.95 and whose pair check passes. The best (b, r) at that k has the largest min(recall, precision), ties by the smaller r.
@@ -64,6 +68,14 @@ For each t: the smallest k with a (b, r) whose pair recall and pair precision ar
 | 0.9 | 64 | 32 × 2 | 0.9840 | 0.9889 |
 
 ## Pair recall and precision at each grid point
+
+![Recall and precision at every grid point](lsh_20news_full_heatmap.svg)
+
+How to read it: each row is one (k, b × r), and each column is one t. Bright cells are near 1, and bold values are at least 0.95. Recall rises and precision falls as r gets smaller.
+
+![Precision against recall for each k](lsh_20news_full_pr.svg)
+
+How to read it: one panel for each k, and one curve for each r. Each curve runs from t = 0.3 to t = 0.9. The dotted lines mark 0.95, so a point in the top-right corner meets the target of a recommended k.
 
 Each cell is recall / precision. A FAIL marks a failed pair check.
 
@@ -94,6 +106,10 @@ Each cell is recall / precision. A FAIL marks a failed pair check.
 
 On the stored pairs with exact J ≥ 0.1. The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.
 
+![Estimate error against k](lsh_20news_full_estimates.svg)
+
+How to read it: on the left, the measured RMSE (blue) lies on the theory (orange), and it halves when k grows 4 times. The bias (green) is much smaller than the RMSE. On the right, the ratio is near 1 at every k.
+
 | k | pairs | mean error | RMSE | RMS theory SD | ratio |
 |---:|---:|---:|---:|---:|---:|
 | 64 | 25551 | 0.002169 | 0.048771 | 0.048371 | 1.0083 |
@@ -105,6 +121,10 @@ On the stored pairs with exact J ≥ 0.1. The ratio is the RMSE divided by the R
 ## Clusters at k = 128, 32 × 4, t = 0.5 (the MH-14 setting)
 
 Co-membership: a pair of posts is in one cluster. A post alone counts as a component of its own, so a merge can join a true cluster and a post that is in no true cluster. All grid points are in `lsh_20news_full_clusters.tsv`.
+
+![Cluster precision against recall for each k](lsh_20news_full_clusters.svg)
+
+How to read it: as the pair figure, but for pairs of posts in one cluster of `get_duplicate_clusters()` against pairs in one true cluster.
 
 - LSH clusters: 1648; true clusters: 1644
 - co-membership precision: 0.8911 (2537 of 2847 pairs)
