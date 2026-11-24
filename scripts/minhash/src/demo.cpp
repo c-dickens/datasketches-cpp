@@ -651,15 +651,38 @@ std::vector<merge_example> worst_merges(const std::vector<std::size_t>& lsh_labe
   return merges;
 }
 
-std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts) {
+uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vector<std::vector<std::string>>& sets) {
+  if (ids.size() != sets.size()) {
+    throw std::invalid_argument("ids and sets differ in size");
+  }
+  XXHash64 hasher(0);
+  const auto add_line = [&hasher](const std::string& text) {
+    hasher.add(text.data(), text.size());
+    hasher.add("\n", 1);
+  };
+  for (std::size_t s = 0; s < sets.size(); ++s) {
+    add_line(std::to_string(ids[s]));
+    for (const auto& item : sets[s]) {
+      add_line(item);
+    }
+    add_line("");
+  }
+  return hasher.hash();
+}
+
+std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts,
+                               uint64_t input_xxh64) {
+  std::array<char, 17> hex{};
+  std::snprintf(hex.data(), hex.size(), "%016llx", static_cast<unsigned long long>(input_xxh64));  // NOLINT(google-runtime-int): the type of %llx
   return "# lsh_20news_full exact pairs (MH-14b): i, j, |A n B|, |A u B| of each pair of indexed posts with J > 0\n"
          "# archive_sha256=" + archive_sha256 + "\n" +
          "# shingle_words=" + std::to_string(shingle_words) + "\n" +
-         "# indexed_posts=" + std::to_string(indexed_posts) + "\n";
+         "# indexed_posts=" + std::to_string(indexed_posts) + "\n" +
+         "# input_xxh64=" + hex.data() + "\n";
 }
 
 void write_exact_pairs(std::ostream& out, const std::string& header, const std::vector<exact_pair>& pairs) {
-  out << header;
+  out << header << "# pairs=" << pairs.size() << '\n';
   for (const auto& p : pairs) {
     out << p.i << '\t' << p.j << '\t' << p.intersection << '\t' << p.union_size << '\n';
   }
@@ -676,6 +699,18 @@ bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<e
   if (seen != header) {
     return false;
   }
+  std::size_t expected = 0;
+  {
+    const std::string prefix = "# pairs=";
+    if (!std::getline(in, line) || line.compare(0, prefix.size(), prefix) != 0) {
+      throw std::runtime_error("the exact-pair cache has no \"# pairs=N\" line");
+    }
+    std::istringstream count(line.substr(prefix.size()));
+    std::string rest;
+    if (!(count >> expected) || (count >> rest)) {
+      throw std::runtime_error("malformed pair count: " + line);
+    }
+  }
   while (std::getline(in, line)) {
     std::istringstream fields(line);
     exact_pair p{};
@@ -685,6 +720,10 @@ bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<e
       throw std::runtime_error("malformed exact-pair line: " + line);
     }
     pairs.push_back(p);
+  }
+  if (pairs.size() != expected) {
+    throw std::runtime_error("the exact-pair cache has " + std::to_string(pairs.size()) + " pairs, but its header says " +
+                             std::to_string(expected));
   }
   return true;
 }
