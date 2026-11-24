@@ -225,7 +225,8 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   // The exact pass, or its cache.
   const fs::path cache = data_dir.parent_path() /
       (smoke ? "lsh_20news_full_exact_pairs_smoke.tsv" : "lsh_20news_full_exact_pairs.tsv");
-  const std::string header = demo::exact_pairs_header(ARCHIVE_SHA256, news20::SHINGLE_WORDS, n);
+  const std::string header =
+      demo::exact_pairs_header(ARCHIVE_SHA256, news20::SHINGLE_WORDS, n, demo::input_fingerprint(post_of, sets));
   const auto exact_start = steady::now();
   std::vector<demo::exact_pair> exact;
   bool loaded = false;
@@ -286,7 +287,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
       throw std::runtime_error("the cache has a post that is not indexed");
     }
     const double j = static_cast<double>(p.intersection) / static_cast<double>(p.union_size);
-    // The header does not identify the shingling code, so check each loaded pair against it.
+    // A cross-check of the input fingerprint in the header: each loaded pair must give news20::jaccard.
     if (loaded && news20::jaccard(sets[u], sets[v]) != j) {
       throw std::runtime_error("the cache does not match news20::jaccard; delete " + cache.string() +
                                " to run the exact pass again");

@@ -222,10 +222,12 @@ The program also asserts that the components of the reported pairs equal
 **Exact-pair cache.** The exact pass takes about 10 minutes. It stores each
 pair with J > 0 as (i, j, |A ∩ B|, |A ∪ B|), with i and j in `load_posts`
 order, in `data/lsh_20news_full_exact_pairs.tsv`. Its header holds the
-SHA-256 of the archive, the shingle width and the indexed post count. The
-program loads the cache when the header matches. Otherwise it runs the exact
-pass again and writes a new cache. It also checks each loaded pair against
-`news20::jaccard`, and stops if one differs. `run_demos.sh` unpacks the committed
+SHA-256 of the archive, the shingle width, the indexed post count, an
+XXHash64 fingerprint of every shingle set, and the pair count. The program
+loads the cache when the header matches, so any change to the shingling
+makes it run the exact pass again and write a new cache. It stops if the
+file has fewer or more pairs than its header says, or if a loaded pair does
+not give `news20::jaccard`. `run_demos.sh` unpacks the committed
 `.tsv.gz` into `data/` when the cache is missing, and it compresses the cache
 into `results/` again (`gzip -9n`) after the run.
 

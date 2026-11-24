@@ -506,8 +506,18 @@ TEST_CASE("compare_clusters finds one merge and one split", "[demo]") {
   REQUIRE(worst[0].weakest_j == 0.35);
 }
 
+TEST_CASE("input_fingerprint changes when any set or id changes", "[demo]") {
+  const std::vector<std::vector<std::string>> sets{{"a b", "c d"}, {"e f"}};
+  const uint64_t base = demo::input_fingerprint({3, 7}, sets);
+  REQUIRE(demo::input_fingerprint({3, 7}, sets) == base);
+  REQUIRE(demo::input_fingerprint({3, 8}, sets) != base);
+  REQUIRE(demo::input_fingerprint({3, 7}, {{"a b", "c e"}, {"e f"}}) != base);
+  REQUIRE(demo::input_fingerprint({3, 7}, {{"a b"}, {"c d", "e f"}}) != base);  // the same items, other sets
+  REQUIRE_THROWS_AS(demo::input_fingerprint({3}, sets), std::invalid_argument);
+}
+
 TEST_CASE("the exact-pair cache refuses a wrong header", "[demo]") {
-  const std::string header = demo::exact_pairs_header("abc", 5, 3);
+  const std::string header = demo::exact_pairs_header("abc", 5, 3, 42);
   const std::vector<demo::exact_pair> pairs{{0, 1, 2, 5}, {1, 2, 1, 9}};
   std::stringstream good;
   demo::write_exact_pairs(good, header, pairs);
@@ -517,13 +527,18 @@ TEST_CASE("the exact-pair cache refuses a wrong header", "[demo]") {
   REQUIRE(read[1].j == 2);
   REQUIRE(read[1].union_size == 9);
 
-  for (const auto& other : {demo::exact_pairs_header("abd", 5, 3), demo::exact_pairs_header("abc", 4, 3),
-                            demo::exact_pairs_header("abc", 5, 4)}) {
+  for (const auto& other : {demo::exact_pairs_header("abd", 5, 3, 42), demo::exact_pairs_header("abc", 4, 3, 42),
+                            demo::exact_pairs_header("abc", 5, 4, 42), demo::exact_pairs_header("abc", 5, 3, 43)}) {
     std::stringstream in;
     demo::write_exact_pairs(in, other, pairs);
     REQUIRE(!demo::read_exact_pairs(in, header, read));
     REQUIRE(read.empty());
   }
-  std::stringstream bad(header + "0\t1\t2\n");
+  std::stringstream bad(header + "# pairs=1\n0\t1\t2\n");
   REQUIRE_THROWS_AS(demo::read_exact_pairs(bad, header, read), std::runtime_error);
+  // A cache that lost lines, or that has no pair count, is refused.
+  std::stringstream truncated(header + "# pairs=2\n0\t1\t2\t5\n");
+  REQUIRE_THROWS_AS(demo::read_exact_pairs(truncated, header, read), std::runtime_error);
+  std::stringstream no_count(header + "0\t1\t2\t5\n");
+  REQUIRE_THROWS_AS(demo::read_exact_pairs(no_count, header, read), std::runtime_error);
 }

@@ -295,14 +295,21 @@ struct exact_pair {
   std::size_t union_size;
 };
 
-/// The header lines of the exact-pair cache. A cache with another header is not used.
-std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts);
+/// A fingerprint of the input of the exact pass: XXHash64 (seed 0) of the text that has, for each
+/// set in order, its id in decimal and then each item, each followed by "\n", and then one more "\n".
+/// Any change to the shingling changes it. Throws std::invalid_argument if the sizes differ.
+uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vector<std::vector<std::string>>& sets);
 
-/// Writes the header, then one line "i\tj\tintersection\tunion" for each pair.
+/// The header lines of the exact-pair cache. A cache with another header is not used.
+std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts,
+                               uint64_t input_xxh64);
+
+/// Writes the header, a line "# pairs=N", then one line "i\tj\tintersection\tunion" for each pair.
 void write_exact_pairs(std::ostream& out, const std::string& header, const std::vector<exact_pair>& pairs);
 
 /// Reads a cache that write_exact_pairs wrote. Returns false, and leaves `pairs` empty, if the
-/// header is not `header`. Throws std::runtime_error on a malformed line.
+/// header is not `header`. Throws std::runtime_error on a malformed line, or if the number of pair
+/// lines is not the "# pairs=N" of the file (for example, a truncated file).
 bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs);
 
 }  // namespace demo
