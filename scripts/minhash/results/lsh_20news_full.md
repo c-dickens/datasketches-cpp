@@ -143,6 +143,10 @@ The 5 worst merges (most true components, then most posts), each with its weakes
 | 3 | 3 | `rec.autos/103051`, `rec.autos/103063` | 0.4840 | `a catylitic converter i d`, `a lot of particulate matter`, `about legislation being discussed to` |
 | 3 | 3 | `rec.autos/103711`, `rec.autos/103740` | 0.4751 | `1st wait 2 3 seconds`, `2 3 seconds and then`, `24326 74 uupcb cutting hou` |
 
+![The worst merges as graphs](lsh_20news_full_merges.svg)
+
+How to read it: each column is one merge of the table above, in the same order. Each dot is a post, coloured by its true cluster at t = 0.5. Each line is a reported pair, labelled with its exact J. A grey line joins posts of one true cluster. A red line has J < t, so it is a false link that joins 2 true clusters, and the thickest red line is the weakest link. The top row is the MH-14 setting (k = 128, 32 × 4). The bottom row shows the same posts at k = 512, 256 × 2, with only the pairs among these posts. The data is in `lsh_20news_full_merges.tsv`.
+
 ## The 20 true pairs with the highest J
 
 Ties by post index. The shingles show whether quoted text or boilerplate makes the pairs similar.

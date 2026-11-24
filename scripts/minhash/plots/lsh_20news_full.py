@@ -21,7 +21,7 @@
 # ///
 
 # The figures of the full-data LSH check on 20 Newsgroups (MH-14b). results/lsh_20news_full.md shows them.
-#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 5 lsh_20news_full_*.svg files
+#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 6 lsh_20news_full_*.svg files
 #   uvx marimo edit plots/lsh_20news_full.py           opens the notebook
 
 import marimo
@@ -52,9 +52,12 @@ def _():
     pairs = pd.read_csv(results_dir / "lsh_20news_full_pairs.tsv", sep="\t", comment="#")  # "NA" reads as NaN
     estimates = pd.read_csv(results_dir / "lsh_20news_full_estimates.tsv", sep="\t", comment="#")
     clusters = pd.read_csv(results_dir / "lsh_20news_full_clusters.tsv", sep="\t", comment="#")
+    merges = pd.read_csv(results_dir / "lsh_20news_full_merges.tsv", sep="\t", comment="#")
+    threshold = float(next(line for line in (results_dir / "lsh_20news_full_merges.tsv").read_text().splitlines()
+                           if line.startswith("# threshold=")).split("=")[1])
     test_alpha = float(next(line for line in (results_dir / "lsh_20news_full_pairs.tsv").read_text().splitlines()
                             if line.startswith("# test_alpha=")).split("=")[1])
-    return LICENCE, clusters, estimates, mo, pairs, plt, results_dir, test_alpha
+    return LICENCE, clusters, estimates, merges, mo, pairs, plt, results_dir, test_alpha, threshold
 
 
 @app.cell
@@ -210,6 +213,69 @@ def _(estimates, plt, save_svg):
 def _(clusters, pr_panels):
     pr_panels(clusters, "Clusters: co-membership precision against recall of get_duplicate_clusters()", "cluster",
               "lsh_20news_full_clusters.svg")
+    return
+
+
+@app.cell
+def _(merges, plt, save_svg, threshold):
+    import math
+
+    def _merges():
+        """Each worst merge as a graph: posts coloured by true cluster, reported pairs as lines."""
+        ids = sorted(merges["Merge"].unique())
+        settings = list(dict.fromkeys(merges.loc[merges["Kind"] == "edge", "Setting"]))
+        if not ids:
+            return None
+        fig, axes = plt.subplots(len(settings), len(ids), figsize=(3.2 * len(ids), 3.6 * len(settings)),
+                                 squeeze=False)
+        palette = plt.get_cmap("tab10")
+        for col, m in enumerate(ids):
+            nodes = merges[(merges["Merge"] == m) & (merges["Kind"] == "node")].sort_values(["TrueCluster", "Post"])
+            names = list(nodes["Post"])
+            # posts of one true cluster sit next to each other on the circle
+            pos = {name: (math.cos(2 * math.pi * i / len(names)), math.sin(2 * math.pi * i / len(names)))
+                   for i, name in enumerate(names)}
+            colour_of = {c: palette(i % 10) for i, c in enumerate(dict.fromkeys(nodes["TrueCluster"]))}
+            weakest = None
+            for row, setting in enumerate(settings):
+                ax = axes[row][col]
+                edges = merges[(merges["Merge"] == m) & (merges["Kind"] == "edge") & (merges["Setting"] == setting)]
+                for _, e in edges.iterrows():
+                    (x1, y1), (x2, y2) = pos[e["Post"]], pos[e["Other"]]
+                    false_link = float(e["ExactJ"]) < threshold
+                    ax.plot([x1, x2], [y1, y2], color="#d62728" if false_link else "#999999",
+                            linewidth=1.5 if false_link else 0.8, zorder=1)
+                    if false_link:
+                        ax.text((x1 + x2) / 2, (y1 + y2) / 2, f"{float(e['ExactJ']):.2f}", fontsize=7,
+                                color="#d62728", ha="center", va="center",
+                                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.5})
+                if row == 0 and len(edges):
+                    weakest = edges.loc[edges["ExactJ"].astype(float).idxmin()]
+                if weakest is not None and ((edges["Post"] == weakest["Post"]) & (edges["Other"] == weakest["Other"])).any():
+                    (x1, y1), (x2, y2) = pos[weakest["Post"]], pos[weakest["Other"]]
+                    ax.plot([x1, x2], [y1, y2], color="#d62728", linewidth=3.5, zorder=1)
+                for name in names:
+                    ax.scatter(*pos[name], s=60, color=colour_of[nodes.loc[nodes["Post"] == name, "TrueCluster"].iloc[0]],
+                               edgecolor="black", linewidth=0.5, zorder=2)
+                false_links = int((edges["ExactJ"].astype(float) < threshold).sum())
+                parts = nodes["TrueCluster"].nunique()
+                ax.set_title(f"merge {m}: {len(names)} posts, {parts} true clusters\n"
+                             f"{len(edges)} reported pairs, {false_links} false" if row == 0 else
+                             f"{len(edges)} reported pairs, {false_links} false", fontsize=8)
+                ax.set_xlim(-1.3, 1.3)
+                ax.set_ylim(-1.3, 1.3)
+                ax.set_aspect("equal")
+                ax.set_xticks([])
+                ax.set_yticks([])
+                if col == 0:
+                    k, b, r = (part[1:] for part in setting.split("_"))
+                    ax.set_ylabel(f"k = {k}, {b} × {r}", fontsize=9)
+        fig.suptitle(f"The worst merges at t = {threshold:.1f}: dots are posts (colour = true cluster), lines are "
+                     "reported pairs (red = false link, J < t; thick red = weakest link)", fontsize=10)
+        fig.tight_layout()
+        return save_svg(fig, "lsh_20news_full_merges.svg")
+
+    _merges()
     return
 
 

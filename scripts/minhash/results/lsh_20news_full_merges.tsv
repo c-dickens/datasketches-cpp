@@ -1,0 +1,127 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ticket=MH-14b
+# smoke=0
+# indexed_posts=19925
+# pairs_j_gt_0=581369
+# family_alpha=1e-06
+# test_alpha=3.57e-09
+# threshold=0.5
+Merge	Kind	Setting	Post	Other	TrueCluster	ExactJ	EstimatedJ
+1	node	-	rec.sport.baseball/104383	-	rec.sport.baseball/104383	-	-
+1	node	-	rec.sport.baseball/104384	-	rec.sport.baseball/104384	-	-
+1	node	-	rec.sport.baseball/104526	-	rec.sport.baseball/104384	-	-
+1	node	-	rec.sport.baseball/104530	-	rec.sport.baseball/104384	-	-
+1	node	-	rec.sport.baseball/104561	-	rec.sport.baseball/104561	-	-
+1	node	-	rec.sport.baseball/104576	-	rec.sport.baseball/104384	-	-
+1	node	-	rec.sport.baseball/104596	-	rec.sport.baseball/104561	-	-
+1	node	-	rec.sport.baseball/104933	-	rec.sport.baseball/104933	-	-
+1	node	-	rec.sport.baseball/105082	-	rec.sport.baseball/104384	-	-
+1	node	-	rec.sport.baseball/105083	-	rec.sport.baseball/104384	-	-
+1	edge	k128_b32_r4	rec.sport.baseball/104383	rec.sport.baseball/104384	-	0.4910	0.5547
+1	edge	k128_b32_r4	rec.sport.baseball/104383	rec.sport.baseball/105082	-	0.4227	0.5078
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/104526	-	0.6990	0.7109
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/104530	-	0.6143	0.6328
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/104576	-	0.5309	0.5938
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/104933	-	0.4751	0.5078
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/105082	-	0.6014	0.6328
+1	edge	k128_b32_r4	rec.sport.baseball/104384	rec.sport.baseball/105083	-	0.5342	0.5234
+1	edge	k128_b32_r4	rec.sport.baseball/104526	rec.sport.baseball/104530	-	0.5920	0.5547
+1	edge	k128_b32_r4	rec.sport.baseball/104526	rec.sport.baseball/104561	-	0.4519	0.5312
+1	edge	k128_b32_r4	rec.sport.baseball/104526	rec.sport.baseball/104576	-	0.5034	0.5312
+1	edge	k128_b32_r4	rec.sport.baseball/104526	rec.sport.baseball/105082	-	0.5538	0.5547
+1	edge	k128_b32_r4	rec.sport.baseball/104530	rec.sport.baseball/104576	-	0.8013	0.7969
+1	edge	k128_b32_r4	rec.sport.baseball/104530	rec.sport.baseball/105082	-	0.5150	0.5547
+1	edge	k128_b32_r4	rec.sport.baseball/104561	rec.sport.baseball/104596	-	0.6937	0.7344
+1	edge	k128_b32_r4	rec.sport.baseball/104576	rec.sport.baseball/105082	-	0.4550	0.5234
+1	edge	k128_b32_r4	rec.sport.baseball/105082	rec.sport.baseball/105083	-	0.6407	0.6562
+1	edge	k512_b256_r2	rec.sport.baseball/104384	rec.sport.baseball/104526	-	0.6990	0.6641
+1	edge	k512_b256_r2	rec.sport.baseball/104384	rec.sport.baseball/104530	-	0.6143	0.5879
+1	edge	k512_b256_r2	rec.sport.baseball/104384	rec.sport.baseball/104576	-	0.5309	0.5137
+1	edge	k512_b256_r2	rec.sport.baseball/104384	rec.sport.baseball/105082	-	0.6014	0.5898
+1	edge	k512_b256_r2	rec.sport.baseball/104526	rec.sport.baseball/104530	-	0.5920	0.6055
+1	edge	k512_b256_r2	rec.sport.baseball/104526	rec.sport.baseball/104576	-	0.5034	0.5117
+1	edge	k512_b256_r2	rec.sport.baseball/104526	rec.sport.baseball/105082	-	0.5538	0.5449
+1	edge	k512_b256_r2	rec.sport.baseball/104530	rec.sport.baseball/104576	-	0.8013	0.7734
+1	edge	k512_b256_r2	rec.sport.baseball/104530	rec.sport.baseball/105082	-	0.5150	0.5312
+1	edge	k512_b256_r2	rec.sport.baseball/104561	rec.sport.baseball/104596	-	0.6937	0.7285
+1	edge	k512_b256_r2	rec.sport.baseball/105082	rec.sport.baseball/105083	-	0.6407	0.6270
+2	node	-	alt.atheism/53385	-	alt.atheism/53385	-	-
+2	node	-	alt.atheism/53516	-	alt.atheism/53516	-	-
+2	node	-	alt.atheism/53646	-	alt.atheism/53646	-	-
+2	node	-	alt.atheism/54203	-	alt.atheism/53385	-	-
+2	node	-	talk.religion.misc/83792	-	alt.atheism/53385	-	-
+2	node	-	talk.religion.misc/83887	-	alt.atheism/53516	-	-
+2	node	-	talk.religion.misc/83984	-	alt.atheism/53646	-	-
+2	edge	k128_b32_r4	alt.atheism/53385	alt.atheism/53516	-	0.4977	0.5078
+2	edge	k128_b32_r4	alt.atheism/53385	alt.atheism/53646	-	0.4482	0.5312
+2	edge	k128_b32_r4	alt.atheism/53385	alt.atheism/54203	-	0.5871	0.5547
+2	edge	k128_b32_r4	alt.atheism/53385	talk.religion.misc/83792	-	1.0000	1.0000
+2	edge	k128_b32_r4	alt.atheism/53385	talk.religion.misc/83887	-	0.4977	0.5078
+2	edge	k128_b32_r4	alt.atheism/53385	talk.religion.misc/83984	-	0.4482	0.5312
+2	edge	k128_b32_r4	alt.atheism/53516	talk.religion.misc/83792	-	0.4977	0.5078
+2	edge	k128_b32_r4	alt.atheism/53516	talk.religion.misc/83887	-	1.0000	1.0000
+2	edge	k128_b32_r4	alt.atheism/53646	talk.religion.misc/83792	-	0.4482	0.5312
+2	edge	k128_b32_r4	alt.atheism/53646	talk.religion.misc/83984	-	1.0000	1.0000
+2	edge	k128_b32_r4	alt.atheism/54203	talk.religion.misc/83792	-	0.5871	0.5547
+2	edge	k128_b32_r4	talk.religion.misc/83792	talk.religion.misc/83887	-	0.4977	0.5078
+2	edge	k128_b32_r4	talk.religion.misc/83792	talk.religion.misc/83984	-	0.4482	0.5312
+2	edge	k512_b256_r2	alt.atheism/53385	alt.atheism/54203	-	0.5871	0.5801
+2	edge	k512_b256_r2	alt.atheism/53385	talk.religion.misc/83792	-	1.0000	1.0000
+2	edge	k512_b256_r2	alt.atheism/53516	talk.religion.misc/83887	-	1.0000	1.0000
+2	edge	k512_b256_r2	alt.atheism/53646	talk.religion.misc/83984	-	1.0000	1.0000
+2	edge	k512_b256_r2	alt.atheism/54203	talk.religion.misc/83792	-	0.5871	0.5801
+3	node	-	alt.atheism/53061	-	alt.atheism/53061	-	-
+3	node	-	alt.atheism/53115	-	alt.atheism/53115	-	-
+3	node	-	alt.atheism/53146	-	alt.atheism/53146	-	-
+3	node	-	talk.religion.misc/83533	-	alt.atheism/53061	-	-
+3	node	-	talk.religion.misc/83573	-	alt.atheism/53115	-	-
+3	node	-	talk.religion.misc/83595	-	alt.atheism/53146	-	-
+3	edge	k128_b32_r4	alt.atheism/53061	alt.atheism/53115	-	0.4388	0.5625
+3	edge	k128_b32_r4	alt.atheism/53061	alt.atheism/53146	-	0.4778	0.5547
+3	edge	k128_b32_r4	alt.atheism/53061	talk.religion.misc/83533	-	1.0000	1.0000
+3	edge	k128_b32_r4	alt.atheism/53061	talk.religion.misc/83573	-	0.4388	0.5625
+3	edge	k128_b32_r4	alt.atheism/53061	talk.religion.misc/83595	-	0.4778	0.5547
+3	edge	k128_b32_r4	alt.atheism/53115	alt.atheism/53146	-	0.4526	0.5156
+3	edge	k128_b32_r4	alt.atheism/53115	talk.religion.misc/83533	-	0.4388	0.5625
+3	edge	k128_b32_r4	alt.atheism/53115	talk.religion.misc/83573	-	1.0000	1.0000
+3	edge	k128_b32_r4	alt.atheism/53115	talk.religion.misc/83595	-	0.4526	0.5156
+3	edge	k128_b32_r4	alt.atheism/53146	talk.religion.misc/83533	-	0.4778	0.5547
+3	edge	k128_b32_r4	alt.atheism/53146	talk.religion.misc/83573	-	0.4526	0.5156
+3	edge	k128_b32_r4	alt.atheism/53146	talk.religion.misc/83595	-	1.0000	1.0000
+3	edge	k128_b32_r4	talk.religion.misc/83533	talk.religion.misc/83573	-	0.4388	0.5625
+3	edge	k128_b32_r4	talk.religion.misc/83533	talk.religion.misc/83595	-	0.4778	0.5547
+3	edge	k128_b32_r4	talk.religion.misc/83573	talk.religion.misc/83595	-	0.4526	0.5156
+3	edge	k512_b256_r2	alt.atheism/53061	alt.atheism/53146	-	0.4778	0.5137
+3	edge	k512_b256_r2	alt.atheism/53061	talk.religion.misc/83533	-	1.0000	1.0000
+3	edge	k512_b256_r2	alt.atheism/53061	talk.religion.misc/83595	-	0.4778	0.5137
+3	edge	k512_b256_r2	alt.atheism/53115	talk.religion.misc/83573	-	1.0000	1.0000
+3	edge	k512_b256_r2	alt.atheism/53146	talk.religion.misc/83533	-	0.4778	0.5137
+3	edge	k512_b256_r2	alt.atheism/53146	talk.religion.misc/83595	-	1.0000	1.0000
+3	edge	k512_b256_r2	talk.religion.misc/83533	talk.religion.misc/83595	-	0.4778	0.5137
+4	node	-	rec.autos/103051	-	rec.autos/103051	-	-
+4	node	-	rec.autos/103063	-	rec.autos/103063	-	-
+4	node	-	rec.autos/103508	-	rec.autos/103508	-	-
+4	edge	k128_b32_r4	rec.autos/103051	rec.autos/103063	-	0.4840	0.5156
+4	edge	k128_b32_r4	rec.autos/103063	rec.autos/103508	-	0.4949	0.5469
+4	edge	k512_b256_r2	rec.autos/103063	rec.autos/103508	-	0.4949	0.5117
+5	node	-	rec.autos/103518	-	rec.autos/103518	-	-
+5	node	-	rec.autos/103711	-	rec.autos/103711	-	-
+5	node	-	rec.autos/103740	-	rec.autos/103740	-	-
+5	edge	k128_b32_r4	rec.autos/103518	rec.autos/103711	-	0.4965	0.5234
+5	edge	k128_b32_r4	rec.autos/103711	rec.autos/103740	-	0.4751	0.5078
+5	edge	k512_b256_r2	rec.autos/103518	rec.autos/103711	-	0.4965	0.5176
