@@ -355,6 +355,9 @@ private:
 
 /// Deduplication by clusters: each component keeps its smallest item and removes the others, so an
 /// item is kept when label[i] == i (labels from components()). An item alone is kept.
+/// wrongly_removed and missed_duplicates compare which item each side keeps. When a merge and a split
+/// meet, LSH can keep another item of the same true component, so they are upper bounds of
+/// lost_components and extra_kept, which count what the LSH kept set covers.
 struct kept_counts {
   std::size_t items = 0;
   std::size_t kept_exact = 0;
@@ -362,6 +365,8 @@ struct kept_counts {
   std::size_t kept_both = 0;
   std::size_t wrongly_removed = 0;    // kept by the exact clusters, removed by the LSH clusters
   std::size_t missed_duplicates = 0;  // kept by the LSH clusters, removed by the exact clusters
+  std::size_t lost_components = 0;    // true components with no item in the LSH kept set
+  std::size_t extra_kept = 0;         // LSH-kept items beyond one for each true component they cover
 };
 
 /// Throws std::invalid_argument if the label sizes differ.

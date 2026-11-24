@@ -637,5 +637,17 @@ TEST_CASE("compare_kept counts the kept, wrongly removed and missed items", "[de
   REQUIRE(k.kept_both == 3);
   REQUIRE(k.wrongly_removed == 1);    // 5: LSH merged it into {3, 4}
   REQUIRE(k.missed_duplicates == 1);  // 2: LSH split it from {0, 1}
+  REQUIRE(k.lost_components == 1);    // {5} has no LSH-kept item
+  REQUIRE(k.extra_kept == 1);         // {0, 1, 2} has 2 LSH-kept items, 0 and 2
   REQUIRE_THROWS_AS(demo::compare_kept({0}, {0, 1}), std::invalid_argument);
+}
+
+TEST_CASE("compare_kept counts no loss when a merge and a split keep another item of each cluster", "[demo]") {
+  // True: {0, 3} and {1, 2}, so 0 and 1 are kept. LSH: {0, 1} and {2, 3}, so 0 and 2 are kept.
+  // LSH keeps 1 item of each true component, so nothing is lost or left in, though the kept items differ.
+  const auto k = demo::compare_kept({0, 0, 2, 2}, {0, 1, 1, 0});
+  REQUIRE(k.wrongly_removed == 1);
+  REQUIRE(k.missed_duplicates == 1);
+  REQUIRE(k.lost_components == 0);
+  REQUIRE(k.extra_kept == 0);
 }
