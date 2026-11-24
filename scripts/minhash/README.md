@@ -175,6 +175,60 @@ because such a post cannot be indexed.
 
 The speed of LSH against exact all-pairs is in MH-15, not here.
 
+## Full-data LSH check on 20 Newsgroups (MH-14b)
+
+```bash
+FULL=1 ./run_demos.sh
+build/lsh_20news_full [--smoke] data/20_newsgroups results
+```
+
+`./run_demos.sh` runs this demo only when `FULL=1` is set. It compares the
+sketch and the LSH index with the exact Jaccard of every pair of indexed posts
+(19,925 posts, about 198.5 million pairs), at each of 140 grid points:
+k ∈ {64, 128, 256, 512, 1024}, r ∈ {2, 4, 8, 16}, b = k / r and
+t ∈ {0.3, 0.4, …, 0.9}. A true pair has exact J ≥ t. A reported pair is a
+candidate with Ĵ ≥ t. It writes these files, which are committed:
+
+- `results/lsh_20news_full_pairs.tsv`: the pair counts, recall, precision,
+  expected counts, p-values and PASS or FAIL of each grid point.
+- `results/lsh_20news_full_clusters.tsv`: the LSH clusters against the true
+  clusters (the components of the true pairs) at each grid point.
+- `results/lsh_20news_full_estimates.tsv`: the error of Ĵ for each k.
+- `results/lsh_20news_full.md`: the summary, with the last line
+  `Overall: PASS` or `Overall: FAIL`.
+- `results/lsh_20news_full.svg`: the precision–recall curves, from
+  `plots/lsh_20news_full.py`.
+- `results/lsh_20news_full_exact_pairs.tsv.gz`: the exact-pair cache (below).
+
+`Overall: PASS` needs 3 checks:
+
+- **Pair check.** At each grid point, the count of reported true pairs and the
+  count of reported false pairs are tested against their theory with the
+  exact Poisson-binomial p-value, at a family-wise α of 10⁻⁶ over the 280
+  tests. P(reported | J) is the joint probability that some band is all-equal
+  and at least ⌈t k⌉ slots are equal. It is not the product of the two
+  probabilities, because both use the same slots.
+- **Prefix assert.** Slot i does not depend on k, so each signature must equal
+  the first k slots of the k = 1024 signature.
+- **Cross-posts.** Each `Message-ID` pair must be in one true cluster and in
+  one LSH cluster, at every grid point.
+
+The program also asserts that the components of the reported pairs equal
+`get_duplicate_clusters()` at every grid point.
+
+**Exact-pair cache.** The exact pass takes about 10 minutes. It stores each
+pair with J > 0 as (i, j, |A ∩ B|, |A ∪ B|), with i and j in `load_posts`
+order, in `data/lsh_20news_full_exact_pairs.tsv`. Its header holds the
+SHA-256 of the archive, the shingle width and the indexed post count. The
+program loads the cache when the header matches. Otherwise it runs the exact
+pass again and writes a new cache. `run_demos.sh` unpacks the committed
+`.tsv.gz` into `data/` when the cache is missing, and it compresses the cache
+into `results/` again (`gzip -9n`) after the run.
+
+**Smoke run.** `--smoke` uses only the 2,000 posts of the MinHash demo sample,
+with its own cache, and writes to `results/smoke/`, which git ignores. It
+takes about 15 seconds.
+
 ## Band-key test vectors
 
 `vectors/band_keys.py` computes the 15 band-key test vectors of

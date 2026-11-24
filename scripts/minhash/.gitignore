@@ -2,3 +2,4 @@ build/
 .venv/
 build-characterise/
 results/characterisation/smoke/
+results/smoke/
