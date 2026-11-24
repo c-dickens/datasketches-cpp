@@ -376,50 +376,112 @@ std::vector<heldout_row> run_heldout(const std::vector<bool>& in_a, const std::v
   return heldout;
 }
 
-int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::path& out_dir,
-        steady::time_point start) {
-  fs::create_directories(out_dir);
+// Adds the pairs below the floor to the J bands and to the false side of the pair check of one grid point.
+// lp is P(verified | J) of each low bin, and low_verified counts the verified pairs below the floor by J band.
+void add_low_bins(grid_result& g, const low_bins& low, const std::vector<double>& lp,
+                  const std::array<std::size_t, demo::NUM_BINS>& low_verified, std::size_t low_count,
+                  const std::vector<double>& exact_j, const std::vector<double>& prob, double t, double test_alpha) {
+  double low_mean = 0.0;
+  double low_variance = 0.0;
+  for (std::size_t b = 0; b < low.all.size(); ++b) {
+    const auto count = static_cast<double>(low.all[b]);
+    low_mean += count * lp[b];
+    low_variance += count * lp[b] * (1.0 - lp[b]);
+    auto& band = g.bands[demo::jaccard_bin(low_bin_j(b))];
+    band.pairs += low.all[b];
+    band.expected += count * lp[b];
+  }
+  for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
+    g.bands[band].verified += low_verified[band];
+  }
+  add_low_pairs(g.pairs, exact_j, prob, t, low_count, low_mean, low_variance, test_alpha);
+}
+
+// The true pairs in one proxy group, and the true clusters against the proxy groups, at each threshold.
+void proxy_truth(const full_source& src, const demo::edge_list& pair_nodes, const std::vector<double>& exact_j,
+                 const std::vector<std::vector<std::size_t>>& true_label, std::vector<std::size_t>& true_proxy_pairs,
+                 std::vector<demo::cluster_metrics>& proxy_true) {
+  for (std::size_t ti = 0; ti < src.thresholds.size(); ++ti) {
+    for (std::size_t e = 0; e < pair_nodes.size(); ++e) {
+      const auto& pr = pair_nodes[e];
+      true_proxy_pairs[ti] +=
+          exact_j[e] >= src.thresholds[ti] && src.proxy_group[pr.first] == src.proxy_group[pr.second] ? 1 : 0;
+    }
+    proxy_true[ti] = demo::compare_clusters(true_label[ti], src.proxy_group);
+  }
+}
+
+// The report-only proxy section of the report (Markdown), and its TSV in proxy_tsv.
+std::string proxy_section(const full_source& src, const std::vector<grid_result>& results, std::size_t n_t,
+                          const std::vector<std::size_t>& true_proxy_pairs,
+                          const std::vector<demo::cluster_metrics>& proxy_true, const std::string& meta,
+                          unsigned ref_bands, std::ostringstream& proxy_tsv) {
+  std::ostringstream md;
+  const std::size_t proxy_pairs = proxy_true[0].true_pairs;
+  proxy_tsv << tsv_licence() << meta << "# proxy_pairs=" << proxy_pairs << "\n"
+            << "K\tR\tB\tT\tTruePairs\tTrueProxy\tVerifiedPairs\tVerifiedProxy\tTrueCoPairs\tTrueCoProxy\t"
+               "LshCoPairs\tLshCoProxy\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const auto& g = results[i];
+    const std::size_t ti = i % n_t;
+    proxy_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << tfix(g.point.threshold) << "\t"
+              << g.pairs.counts.similar << "\t" << true_proxy_pairs[ti] << "\t" << g.pairs.counts.verified << "\t"
+              << g.verified_proxy << "\t" << proxy_true[ti].lsh_pairs << "\t" << proxy_true[ti].both_pairs << "\t"
+              << g.proxy_lsh.lsh_pairs << "\t" << g.proxy_lsh.both_pairs << "\n";
+  }
+  md << "## " << src.proxy_title << " (report only)\n\n";
+  md << src.proxy_text << "\n\n";
+  md << "- proxy pairs (two " << src.nouns << " of one group): " << proxy_pairs << "\n\n";
+  md << "Each cell is precision / recall against the proxy: the share of the pairs that are proxy pairs, and the "
+        "share of the proxy pairs that they cover. True pairs and true clusters use the exact J, so they show the "
+        "gap between the item and the proxy. Verified pairs and LSH clusters add the error of the sketch. At k = "
+     << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << "; all grid points are in `" << src.stem
+     << "_proxy.tsv`.\n\n";
+  md << "| t | true pairs | verified pairs | true clusters | LSH clusters |\n|---:|---|---|---|---|\n";
+  for (std::size_t i = 0; i < results.size(); ++i) {
+    const auto& g = results[i];
+    if (g.point.k != src.ref_k || g.point.rows != src.ref_rows) {
+      continue;
+    }
+    const std::size_t ti = i % n_t;
+    const auto cell = [proxy_pairs](std::size_t in_proxy, std::size_t total) {
+      return ratio(in_proxy, total) + " / " + ratio(in_proxy, proxy_pairs);
+    };
+    md << "| " << tfix(g.point.threshold) << " | " << cell(true_proxy_pairs[ti], g.pairs.counts.similar) << " | "
+       << cell(g.verified_proxy, g.pairs.counts.verified) << " | "
+       << cell(proxy_true[ti].both_pairs, proxy_true[ti].lsh_pairs) << " | "
+       << cell(g.proxy_lsh.both_pairs, g.proxy_lsh.lsh_pairs) << " |\n";
+  }
+  md << "\n";
+  return md.str();
+}
+
+struct exact_result {
+  std::vector<demo::exact_pair> pairs;  // the pairs with J >= floor (J > 0 without a floor)
+  low_bins low;                         // the pairs with 0 < J < floor, by bin
+  bool loaded = false;                  // read from the cache
+  fs::path cache;                       // the cache file
+};
+
+// The exact pass over every pair of indexed items, or its cache next to the data directory.
+exact_result exact_pass(const full_source& src, bool smoke, const fs::path& data_dir, const std::vector<bool>& in_a) {
   const auto& post_of = src.item_of;
   const auto& sets = src.sets;
   const std::size_t n = post_of.size();
-  if (sets.size() != n || src.names.size() != n) {
-    throw std::invalid_argument("item_of, sets and names differ in size");
-  }
-  std::vector<std::size_t> node_of(src.loaded, n);
-  for (std::size_t u = 0; u < n; ++u) {
-    if (sets[u].empty() || post_of[u] >= src.loaded) {
-      throw std::invalid_argument("node " + std::to_string(u) + " has no shingle or no item");
-    }
-    node_of[post_of[u]] = u;
-  }
-  const auto post_name = [&src](std::size_t u) { return src.names[u]; };
-  const auto name = [&post_name](std::size_t u) { return "`" + post_name(u) + "`"; };
-  std::cout << src.nouns << " " << src.chosen << ", indexed " << n << " (" << fixed(seconds_since(start), 1) << " s)\n";
-
-  // The held-out split: the index set and the query set.
-  std::vector<bool> in_a(n);
-  std::size_t index_size = 0;
-  for (std::size_t u = 0; u < n; ++u) {
-    in_a[u] = demo::in_index_set(post_of[u], demo::HELDOUT_SEED);
-    index_size += in_a[u] ? 1 : 0;
-  }
-  if (src.floor > 0.0 && src.floor > src.thresholds.front()) {
-    throw std::invalid_argument("the floor is above the smallest threshold");
-  }
-
-  // The exact pass, or its cache.
   const fs::path cache = data_dir.parent_path() / (src.stem + (smoke ? "_exact_pairs_smoke.tsv" : "_exact_pairs.tsv"));
   const std::string header = demo::exact_pairs_header(
       src.stem + " exact pairs (" + src.ticket + "): i, j, |A n B|, |A u B| of each pair of indexed " + src.nouns +
           (src.floor > 0.0 ? " with J >= " + tfix(src.floor) : std::string(" with J > 0")),
       src.archive_sha256, src.shingle_words, n, demo::input_fingerprint(post_of, sets));
   const auto exact_start = steady::now();
-  std::vector<demo::exact_pair> exact;
+  exact_result r;
+  r.cache = cache;
+  auto& exact = r.pairs;
+  auto& low = r.low;
+  auto& loaded = r.loaded;
   const fs::path low_cache =
       data_dir.parent_path() / (src.stem + (smoke ? "_exact_pairs_low_smoke.tsv" : "_exact_pairs_low.tsv"));
   const auto n_low_bins = static_cast<std::size_t>(std::ceil(src.floor / LOW_BIN_WIDTH - 1e-9));
-  low_bins low;
-  bool loaded = false;
   {
     std::ifstream in(cache, std::ios::binary);
     loaded = in && demo::read_exact_pairs(in, header, exact) &&
@@ -470,6 +532,48 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
       write_low_bins(low_cache, header, low);
     }
   }
+  return r;
+}
+
+int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::path& out_dir,
+        steady::time_point start) {
+  fs::create_directories(out_dir);
+  const auto& post_of = src.item_of;
+  const auto& sets = src.sets;
+  const std::size_t n = post_of.size();
+  if (sets.size() != n || src.names.size() != n) {
+    throw std::invalid_argument("item_of, sets and names differ in size");
+  }
+  std::vector<std::size_t> node_of(src.loaded, n);
+  for (std::size_t u = 0; u < n; ++u) {
+    if (sets[u].empty() || post_of[u] >= src.loaded) {
+      throw std::invalid_argument("node " + std::to_string(u) + " has no shingle or no item");
+    }
+    node_of[post_of[u]] = u;
+  }
+  const auto post_name = [&src](std::size_t u) { return src.names[u]; };
+  const auto name = [&post_name](std::size_t u) { return "`" + post_name(u) + "`"; };
+  std::cout << src.nouns << " " << src.chosen << ", indexed " << n << " (" << fixed(seconds_since(start), 1) << " s)\n";
+
+  // The held-out split: the index set and the query set.
+  std::vector<bool> in_a(n);
+  std::size_t index_size = 0;
+  for (std::size_t u = 0; u < n; ++u) {
+    in_a[u] = demo::in_index_set(post_of[u], demo::HELDOUT_SEED);
+    index_size += in_a[u] ? 1 : 0;
+  }
+  if (src.floor > 0.0 && src.floor > src.thresholds.front()) {
+    throw std::invalid_argument("the floor is above the smallest threshold");
+  }
+
+  // The exact pass, or its cache.
+  const auto exact_start = steady::now();
+  const exact_result exact_out = exact_pass(src, smoke, data_dir, in_a);
+  const auto& exact = exact_out.pairs;
+  const low_bins& low = exact_out.low;
+  const bool loaded = exact_out.loaded;
+  const fs::path& cache = exact_out.cache;
+  const auto n_low_bins = low.all.size();
   std::size_t low_count = 0;
   for (const std::size_t c : low.all) {
     low_count += c;
@@ -526,14 +630,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
   std::vector<std::size_t> true_proxy_pairs(src.thresholds.size(), 0);  // true pairs in one proxy group
   std::vector<demo::cluster_metrics> proxy_true(src.thresholds.size());  // the true clusters against the groups
   if (has_proxy) {
-    for (std::size_t ti = 0; ti < src.thresholds.size(); ++ti) {
-      for (std::size_t e = 0; e < n_pairs; ++e) {
-        const auto& pr = pair_nodes[e];
-        true_proxy_pairs[ti] +=
-            exact_j[e] >= src.thresholds[ti] && src.proxy_group[pr.first] == src.proxy_group[pr.second] ? 1 : 0;
-      }
-      proxy_true[ti] = demo::compare_clusters(true_label[ti], src.proxy_group);
-    }
+    proxy_truth(src, pair_nodes, exact_j, true_label, true_proxy_pairs, proxy_true);
   }
 
   std::vector<demo::grid_point> grid;  // as demo::full_grid(), with the rows and thresholds of src
@@ -710,21 +807,8 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         g.pairs = demo::check_pair_tests(exact_j, prob[ri * n_t + ti], reported, reported_disjoint, t, test_alpha);
         g.bands = demo::band_rates(exact_j, prob[ri * n_t + ti], reported);
         if (src.floor > 0.0) {
-          const auto& lp = low_prob[ri * n_t + ti];
-          double low_mean = 0.0;
-          double low_variance = 0.0;
-          for (std::size_t b = 0; b < n_low_bins; ++b) {
-            const auto count = static_cast<double>(low.all[b]);
-            low_mean += count * lp[b];
-            low_variance += count * lp[b] * (1.0 - lp[b]);
-            auto& band = g.bands[demo::jaccard_bin(low_bin_j(b))];
-            band.pairs += low.all[b];
-            band.expected += count * lp[b];
-          }
-          for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
-            g.bands[band].verified += low_verified[band];
-          }
-          add_low_pairs(g.pairs, exact_j, prob[ri * n_t + ti], t, low_count, low_mean, low_variance, test_alpha);
+          add_low_bins(g, low, low_prob[ri * n_t + ti], low_verified, low_count, exact_j, prob[ri * n_t + ti], t,
+                       test_alpha);
         }
         tail_seconds += seconds_since(tail_start);
 
@@ -1331,42 +1415,7 @@ int run(const full_source& src, bool smoke, const fs::path& data_dir, const fs::
         "point far right keeps near-copies that should go (missed duplicates, mostly from splits).\n\n";
   std::ostringstream proxy_tsv;
   if (has_proxy) {
-    const std::size_t proxy_pairs = proxy_true[0].true_pairs;
-    proxy_tsv << tsv_licence() << meta.str() << "# proxy_pairs=" << proxy_pairs << "\n"
-              << "K\tR\tB\tT\tTruePairs\tTrueProxy\tVerifiedPairs\tVerifiedProxy\tTrueCoPairs\tTrueCoProxy\t"
-                 "LshCoPairs\tLshCoProxy\n";
-    for (std::size_t i = 0; i < results.size(); ++i) {
-      const auto& g = results[i];
-      const std::size_t ti = i % n_t;
-      proxy_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << tfix(g.point.threshold) << "\t"
-                << g.pairs.counts.similar << "\t" << true_proxy_pairs[ti] << "\t" << g.pairs.counts.verified << "\t"
-                << g.verified_proxy << "\t" << proxy_true[ti].lsh_pairs << "\t" << proxy_true[ti].both_pairs << "\t"
-                << g.proxy_lsh.lsh_pairs << "\t" << g.proxy_lsh.both_pairs << "\n";
-    }
-    md << "## " << src.proxy_title << " (report only)\n\n";
-    md << src.proxy_text << "\n\n";
-    md << "- proxy pairs (two " << src.nouns << " of one group): " << proxy_pairs << "\n\n";
-    md << "Each cell is precision / recall against the proxy: the share of the pairs that are proxy pairs, and the "
-          "share of the proxy pairs that they cover. True pairs and true clusters use the exact J, so they show the "
-          "gap between the item and the proxy. Verified pairs and LSH clusters add the error of the sketch. At k = "
-       << src.ref_k << ", " << ref_bands << " × " << src.ref_rows << "; all grid points are in `" << src.stem
-       << "_proxy.tsv`.\n\n";
-    md << "| t | true pairs | verified pairs | true clusters | LSH clusters |\n|---:|---|---|---|---|\n";
-    for (std::size_t i = 0; i < results.size(); ++i) {
-      const auto& g = results[i];
-      if (g.point.k != src.ref_k || g.point.rows != src.ref_rows) {
-        continue;
-      }
-      const std::size_t ti = i % n_t;
-      const auto cell = [proxy_pairs](std::size_t in_proxy, std::size_t total) {
-        return ratio(in_proxy, total) + " / " + ratio(in_proxy, proxy_pairs);
-      };
-      md << "| " << tfix(g.point.threshold) << " | " << cell(true_proxy_pairs[ti], g.pairs.counts.similar) << " | "
-         << cell(g.verified_proxy, g.pairs.counts.verified) << " | "
-         << cell(proxy_true[ti].both_pairs, proxy_true[ti].lsh_pairs) << " | "
-         << cell(g.proxy_lsh.both_pairs, g.proxy_lsh.lsh_pairs) << " |\n";
-    }
-    md << "\n";
+    md << proxy_section(src, results, n_t, true_proxy_pairs, proxy_true, meta.str(), ref_bands, proxy_tsv);
   }
 
   md << "## The " << TOP_PAIRS << " true pairs with the highest J\n\n";
