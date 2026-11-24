@@ -212,6 +212,7 @@ std::vector<grid_point> full_grid();
 
 /// The smallest m with m / k >= t, compared in double as minhash_sketch::jaccard() is.
 /// Ĵ >= t exactly when the signatures are equal in at least m slots. t is in (0, 1].
+/// Throws std::invalid_argument if t is outside (0, 1] or k is 0.
 std::size_t min_matches(double t, uint16_t k);
 
 /// pmf[s] = P(Binomial(k, j) = s), for s in [0, k].
@@ -220,7 +221,7 @@ std::vector<double> binomial_pmf(double j, std::size_t k);
 /// q[s] = P(some band has all its `rows` slots equal | exactly s of the k = rows * bands slots are
 /// equal), for s in [0, k]. Given s, the equal slots are a uniform s-subset, because the slots are
 /// independent and have the same J. A dynamic program over the bands, with a hypergeometric count
-/// in each band.
+/// in each band. Throws std::invalid_argument if rows or bands is 0.
 std::vector<double> full_band_given_matches(unsigned rows, unsigned bands);
 
 /// tail[m] = sum over s >= m of pmf[s] q[s], for m in [0, k + 1]: P(some band is all-equal AND at
@@ -229,6 +230,7 @@ std::vector<double> full_band_given_matches(unsigned rows, unsigned bands);
 std::vector<double> reported_tail(const std::vector<double>& pmf, const std::vector<double>& q);
 
 /// P(reported | J): reported_tail(binomial_pmf(j, k), full_band_given_matches(rows, bands))[m].
+/// Throws std::invalid_argument if rows or bands is 0, or if m > k + 1.
 double reported_probability(double j, unsigned rows, unsigned bands, std::size_t min_matches);
 
 /// The two pair tests of one grid point. The tested pairs are the true pairs (exact J >= t) for
