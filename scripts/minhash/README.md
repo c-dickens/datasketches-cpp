@@ -197,10 +197,17 @@ candidate with Ĵ ≥ t. It writes these files, which are committed:
 - `results/lsh_20news_full_estimates.tsv`: the error of Ĵ for each k.
 - `results/lsh_20news_full.md`: the summary, with the figures and the last
   line `Overall: PASS` or `Overall: FAIL`.
-- `results/lsh_20news_full_*.svg`: the 6 figures of the summary, from
+- `results/lsh_20news_full_*.svg`: the 8 figures of the summary, from
   `plots/lsh_20news_full.py`: the pair and cluster precision–recall curves,
   a table of colour of recall and precision, the counts against the theory,
-  the estimate error against k, and the 5 worst merges drawn as graphs.
+  the verified rate for each J band, the estimate error against k, the 5
+  worst merges drawn as graphs, and a random sample of 12 clusters drawn as
+  graphs.
+- `results/lsh_20news_full_bands.tsv`: the verified rate and the expected
+  rate for each J band of width 0.1, at every grid point (report only).
+- `results/lsh_20news_full_sample_clusters.tsv`: the posts, verified pairs
+  and missed true pairs of the 12 sampled clusters at k = 128, 32 × 4,
+  t = 0.5.
 - `results/lsh_20news_full_merges.tsv`: the posts and reported pairs of the
   5 worst merges at k = 128, 32 × 4, t = 0.5, and the same posts at k = 512,
   256 × 2, for the merge figure.

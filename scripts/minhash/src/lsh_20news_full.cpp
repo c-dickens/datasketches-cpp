@@ -38,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -147,6 +148,7 @@ struct grid_result {
   demo::cluster_metrics clusters{};
   std::vector<demo::merge_example> worst;
   std::size_t cross_split = 0;  // cross-post pairs not in one true cluster, or not in one LSH cluster
+  std::array<demo::band_rate, demo::NUM_BINS> bands{};  // the verified pairs of each J band
 };
 
 struct estimate_row {
@@ -221,9 +223,10 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   for (std::size_t u = 0; u < n; ++u) {
     node_of[post_of[u]] = u;
   }
-  const auto name = [&posts, &post_of](std::size_t u) {
-    return "`" + posts[post_of[u]].group + "/" + posts[post_of[u]].id + "`";
+  const auto post_name = [&posts, &post_of](std::size_t u) {
+    return posts[post_of[u]].group + "/" + posts[post_of[u]].id;
   };
+  const auto name = [&post_name](std::size_t u) { return "`" + post_name(u) + "`"; };
   std::cout << "posts " << chosen.size() << ", indexed " << n << " (" << fixed(seconds_since(start), 1) << " s)\n";
 
   // The exact pass, or its cache.
@@ -466,6 +469,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         }
         const auto tail_start = steady::now();
         g.pairs = demo::check_pair_tests(exact_j, prob[ri * n_t + ti], reported, reported_disjoint, t, test_alpha);
+        g.bands = demo::band_rates(exact_j, prob[ri * n_t + ti], reported);
         tail_seconds += seconds_since(tail_start);
 
         const auto lsh_label = demo::components(n, edges);
@@ -510,10 +514,99 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   const bool cross_pass = cross_failed == 0;
   const bool overall = pair_failed == 0 && prefix_pass && cross_pass;
 
+  // The MH-14 setting: k = LSH_K, LSH_BANDS x LSH_ROWS, t = LSH_THRESHOLD.
+  const grid_result* ref = nullptr;
+  for (const auto& g : results) {
+    if (g.point.k == demo::LSH_K && g.point.rows == demo::LSH_ROWS && g.point.threshold == demo::LSH_THRESHOLD) {
+      ref = &g;
+    }
+  }
+  const auto t_ref = static_cast<std::size_t>(
+      std::find(demo::FULL_THRESHOLDS.begin(), demo::FULL_THRESHOLDS.end(), demo::LSH_THRESHOLD) -
+      demo::FULL_THRESHOLDS.begin());
+  const auto band_label = [](std::size_t band) {
+    return "[" + fixed(static_cast<double>(band) / demo::NUM_BINS, 1) + ", " +
+           fixed(static_cast<double>(band + 1) / demo::NUM_BINS, 1) + (band + 1 == demo::NUM_BINS ? "]" : ")");
+  };
+
   // TSV files.
   std::ostringstream meta;
   meta << "# ticket=MH-14b\n# smoke=" << (smoke ? 1 : 0) << "\n# indexed_posts=" << n << "\n# pairs_j_gt_0=" << n_pairs
        << "\n# family_alpha=" << general(demo::FULL_ALPHA) << "\n# test_alpha=" << general(test_alpha) << "\n";
+  std::ostringstream bands_tsv;
+  bands_tsv << tsv_licence() << meta.str()
+            << "K\tR\tB\tT\tBandLo\tBandHi\tPairs\tVerified\tVerifiedRate\tExpectedVerified\tExpectedRate\n";
+  for (const auto& g : results) {
+    for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
+      const auto& b = g.bands[band];
+      const auto count = static_cast<double>(b.pairs);
+      bands_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << fixed(g.point.threshold, 1)
+                << "\t" << fixed(static_cast<double>(band) / demo::NUM_BINS, 1) << "\t"
+                << fixed(static_cast<double>(band + 1) / demo::NUM_BINS, 1) << "\t" << b.pairs << "\t" << b.verified
+                << "\t" << (b.pairs == 0 ? "NA" : fixed(static_cast<double>(b.verified) / count, 6)) << "\t"
+                << fixed(b.expected, 4) << "\t" << (b.pairs == 0 ? "NA" : fixed(b.expected / count, 6)) << "\n";
+    }
+  }
+
+  // A random sample of the LSH clusters with at least SAMPLE_CLUSTER_MIN_SIZE posts at the MH-14 setting: the
+  // clusters whose smallest post index has the smallest XXHash64 (seed SAMPLE_SEED).
+  std::ostringstream sample_tsv;
+  sample_tsv << tsv_licence() << meta.str() << "# threshold=" << fixed(demo::LSH_THRESHOLD, 1) << "\n"
+             << "Sample\tKind\tPost\tOther\tTrueCluster\tExactJ\tEstimatedJ\n";
+  std::size_t sample_eligible = 0;
+  std::size_t sample_drawn = 0;
+  std::size_t sample_merges = 0;
+  if (ref != nullptr) {
+    std::vector<std::size_t> true_size(n, 0);
+    for (const std::size_t label : true_label[t_ref]) {
+      ++true_size[label];
+    }
+    std::vector<std::vector<std::size_t>> eligible;
+    std::vector<std::size_t> keys;
+    for (auto& cluster : demo::clusters_of(saved[0].lsh_label)) {
+      if (cluster.size() >= demo::SAMPLE_CLUSTER_MIN_SIZE) {
+        keys.push_back(post_of[cluster.front()]);
+        eligible.push_back(std::move(cluster));
+      }
+    }
+    sample_eligible = eligible.size();
+    const auto picked = demo::smallest_hashes(keys, demo::SAMPLE_CLUSTERS, demo::SAMPLE_SEED);
+    sample_drawn = picked.size();
+    for (std::size_t s = 0; s < picked.size(); ++s) {
+      const auto& members = eligible[picked[s]];  // ascending
+      std::vector<bool> member(n, false);
+      std::set<std::size_t> parts;  // true components, a post in no true cluster counts as its own
+      for (const std::size_t u : members) {
+        member[u] = true;
+        const std::size_t label = true_label[t_ref][u];
+        parts.insert(label);
+        sample_tsv << s + 1 << "\tnode\t" << post_name(u) << "\t-\t" << (true_size[label] >= 2 ? post_name(label) : "-")
+                   << "\t-\t-\n";
+      }
+      sample_merges += parts.size() >= 2 ? 1 : 0;
+      std::set<std::pair<std::size_t, std::size_t>> verified_edges;
+      for (std::size_t e = 0; e < saved[0].edges.size(); ++e) {
+        const auto& edge = saved[0].edges[e];
+        if (member[edge.first] && member[edge.second]) {
+          verified_edges.insert(edge);
+          sample_tsv << s + 1 << "\tverified\t" << post_name(edge.first) << "\t" << post_name(edge.second) << "\t-\t"
+                     << fixed(saved[0].exact[e], 4) << "\t" << fixed(saved[0].estimate[e], 4) << "\n";
+        }
+      }
+      // true pairs between drawn posts that LSH did not verify
+      for (std::size_t a = 0; a < members.size(); ++a) {
+        for (std::size_t b = a + 1; b < members.size(); ++b) {
+          const auto it = pair_index.find(static_cast<uint64_t>(members[a]) * n + members[b]);
+          if (it != pair_index.end() && exact_j[it->second] >= demo::LSH_THRESHOLD &&
+              verified_edges.count({members[a], members[b]}) == 0) {
+            sample_tsv << s + 1 << "\tmissed\t" << post_name(members[a]) << "\t" << post_name(members[b]) << "\t-\t"
+                       << fixed(exact_j[it->second], 4) << "\t-\n";
+          }
+        }
+      }
+    }
+  }
+
   std::ostringstream pairs_tsv;
   pairs_tsv << tsv_licence() << meta.str()
             << "K\tR\tB\tT\tMinMatches\tTruePairs\tFalsePairs\tCandidates\tReported\tReportedTrue\tReportedFalse\t"
@@ -709,6 +802,30 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   }
   md << "\n";
 
+  md << "## Verified rate for each J band\n\n";
+  md << "Report only. The pairs with J > 0 are cut into bands of width 0.1, and J = 1 is in the last band. The "
+        "verified rate of a band depends only on the J values of its pairs, not on the mix of pairs in a dataset, so "
+        "it is the figure to compare across datasets and with the theory. In a band at or above t, the verified rate "
+        "is the recall for pairs of that J. In a band below t, it is the false-verify rate. The expected rate is the "
+        "mean of P(verified | J) over the pairs of the band. All grid points are in `lsh_20news_full_bands.tsv`.\n\n";
+  if (ref != nullptr) {
+    md << "At k = " << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << ", t = "
+       << fixed(demo::LSH_THRESHOLD, 1) << ":\n\n";
+    md << "| J band | pairs | verified | verified rate | expected rate |\n|---|---:|---:|---:|---:|\n";
+    for (std::size_t band = 0; band < demo::NUM_BINS; ++band) {
+      const auto& b = ref->bands[band];
+      const auto count = static_cast<double>(b.pairs);
+      md << "| " << band_label(band) << " | " << b.pairs << " | " << b.verified << " | "
+         << (b.pairs == 0 ? "-" : fixed(static_cast<double>(b.verified) / count, 4)) << " | "
+         << (b.pairs == 0 ? "-" : fixed(b.expected / count, 4)) << " |\n";
+    }
+    md << "\n";
+  }
+  md << "![Verified rate for each J band](lsh_20news_full_bands.svg)\n\n";
+  md << "How to read it: the dots are the measured verified rate of each band, and the line is the expected rate. "
+        "The dotted line marks t. Right of it, the rate is the recall for pairs of that J; left of it, the rate is "
+        "the false-verify rate. The right panel shows the same rates on a log scale, so small rates are visible "
+        "(a band with no verified pair is not drawn there).\n\n";
   md << "## Estimate error\n\n";
   md << "On the stored pairs with exact J ≥ " << fixed(demo::ESTIMATE_MIN_J, 1)
      << ". The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.\n\n";
@@ -723,12 +840,6 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   }
   md << "\n";
 
-  const grid_result* ref = nullptr;
-  for (const auto& g : results) {
-    if (g.point.k == demo::LSH_K && g.point.rows == demo::LSH_ROWS && g.point.threshold == demo::LSH_THRESHOLD) {
-      ref = &g;
-    }
-  }
   md << "## Clusters at k = " << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << ", t = "
      << fixed(demo::LSH_THRESHOLD, 1) << " (the MH-14 setting)\n\n";
   md << "Co-membership: a pair of posts is in one cluster. A post alone counts as a component of its own, so a merge "
@@ -768,6 +879,16 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
        << demo::LSH_K << ", " << demo::LSH_BANDS << " × " << demo::LSH_ROWS << "). The bottom row shows the same posts at k = "
        << COMPARE_K << ", " << COMPARE_K / COMPARE_ROWS << " × " << COMPARE_ROWS
        << ", with only the pairs among these posts. The data is in `lsh_20news_full_merges.tsv`.\n\n";
+    md << "### A random sample of the clusters\n\n";
+    md << sample_drawn << " of the " << sample_eligible << " LSH clusters with at least " << demo::SAMPLE_CLUSTER_MIN_SIZE
+       << " posts at this setting, chosen by the smallest XXHash64 (seed " << demo::SAMPLE_SEED
+       << ") of the smallest post index of each cluster. " << sample_merges << " of them contain a merge.\n\n";
+    md << "![A random sample of the clusters as graphs](lsh_20news_full_sample_clusters.svg)\n\n";
+    md << "How to read it: each panel is one LSH cluster. Each dot is a post, coloured by its true cluster at t = "
+       << fixed(demo::LSH_THRESHOLD, 1)
+       << ", and a grey dot is in no true cluster. A solid line is a verified pair, labelled with its exact J, and "
+          "it is red when J < t. A dashed line is a true pair (J ≥ t) between drawn posts that LSH did not verify; "
+          "the chain still puts both posts in the cluster. The data is in `lsh_20news_full_sample_clusters.tsv`.\n\n";
   }
 
   md << "## The " << TOP_PAIRS << " true pairs with the highest J\n\n";
@@ -795,12 +916,6 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   merges_tsv << tsv_licence() << meta.str() << "# threshold=" << fixed(demo::LSH_THRESHOLD, 1) << "\n"
              << "Merge\tKind\tSetting\tPost\tOther\tTrueCluster\tExactJ\tEstimatedJ\n";
   if (ref != nullptr) {
-    const auto post_name = [&posts, &post_of](std::size_t u) {
-      return posts[post_of[u]].group + "/" + posts[post_of[u]].id;
-    };
-    const auto t_index = static_cast<std::size_t>(
-        std::find(demo::FULL_THRESHOLDS.begin(), demo::FULL_THRESHOLDS.end(), demo::LSH_THRESHOLD) -
-        demo::FULL_THRESHOLDS.begin());
     const std::array<std::string, 2> setting{
         "k" + std::to_string(demo::LSH_K) + "_b" + std::to_string(demo::LSH_BANDS) + "_r" + std::to_string(demo::LSH_ROWS),
         "k" + std::to_string(COMPARE_K) + "_b" + std::to_string(COMPARE_K / COMPARE_ROWS) + "_r" + std::to_string(COMPARE_ROWS)};
@@ -809,7 +924,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
       for (std::size_t u = 0; u < n; ++u) {
         if (saved[0].lsh_label[u] == ref->worst[w].lsh_root) {
           member[u] = true;
-          merges_tsv << w + 1 << "\tnode\t-\t" << post_name(u) << "\t-\t" << post_name(true_label[t_index][u])
+          merges_tsv << w + 1 << "\tnode\t-\t" << post_name(u) << "\t-\t" << post_name(true_label[t_ref][u])
                      << "\t-\t-\n";
         }
       }
@@ -827,6 +942,8 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   }
 
   write_file(out_dir / "lsh_20news_full_merges.tsv", merges_tsv.str());
+  write_file(out_dir / "lsh_20news_full_bands.tsv", bands_tsv.str());
+  write_file(out_dir / "lsh_20news_full_sample_clusters.tsv", sample_tsv.str());
   write_file(out_dir / "lsh_20news_full_pairs.tsv", pairs_tsv.str());
   write_file(out_dir / "lsh_20news_full_clusters.tsv", clusters_tsv.str());
   write_file(out_dir / "lsh_20news_full_estimates.tsv", estimates_tsv.str());

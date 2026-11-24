@@ -122,6 +122,29 @@ Each cell is recall / precision. A FAIL marks a failed pair check.
 | 1024 | 128 × 8 | 0.4232 / 0.9988 | 0.6422 / 0.9972 | 0.8677 / 0.9841 | 0.9616 / 0.9714 | 0.9842 / 0.9858 | 0.9893 / 0.9904 | 0.9975 / 0.9963 |
 | 1024 | 64 × 16 | 0.1797 / 1.0000 | 0.2805 / 1.0000 | 0.4310 / 1.0000 | 0.6340 / 1.0000 | 0.8682 / 0.9962 | 0.9861 / 0.9946 | 0.9975 / 0.9963 |
 
+## Verified rate for each J band
+
+Report only. The pairs with J > 0 are cut into bands of width 0.1, and J = 1 is in the last band. The verified rate of a band depends only on the J values of its pairs, not on the mix of pairs in a dataset, so it is the figure to compare across datasets and with the theory. In a band at or above t, the verified rate is the recall for pairs of that J. In a band below t, it is the false-verify rate. The expected rate is the mean of P(verified | J) over the pairs of the band. All grid points are in `lsh_20news_full_bands.tsv`.
+
+At k = 128, 32 × 4, t = 0.5:
+
+| J band | pairs | verified | verified rate | expected rate |
+|---|---:|---:|---:|---:|
+| [0.0, 0.1) | 555818 | 0 | 0.0000 | 0.0000 |
+| [0.1, 0.2) | 14751 | 0 | 0.0000 | 0.0000 |
+| [0.2, 0.3) | 4819 | 0 | 0.0000 | 0.0000 |
+| [0.3, 0.4) | 2149 | 4 | 0.0019 | 0.0015 |
+| [0.4, 0.5) | 1338 | 237 | 0.1771 | 0.1710 |
+| [0.5, 0.6) | 800 | 611 | 0.7638 | 0.7907 |
+| [0.6, 0.7) | 495 | 492 | 0.9939 | 0.9947 |
+| [0.7, 0.8) | 262 | 262 | 1.0000 | 1.0000 |
+| [0.8, 0.9) | 125 | 125 | 1.0000 | 1.0000 |
+| [0.9, 1.0] | 812 | 812 | 1.0000 | 1.0000 |
+
+![Verified rate for each J band](lsh_20news_full_bands.svg)
+
+How to read it: the dots are the measured verified rate of each band, and the line is the expected rate. The dotted line marks t. Right of it, the rate is the recall for pairs of that J; left of it, the rate is the false-verify rate. The right panel shows the same rates on a log scale, so small rates are visible (a band with no verified pair is not drawn there).
+
 ## Estimate error
 
 On the stored pairs with exact J ≥ 0.1. The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.
@@ -166,6 +189,14 @@ The 5 worst merges (most true components, then most posts), each with its weakes
 ![The worst merges as graphs](lsh_20news_full_merges.svg)
 
 How to read it: each column is one merge of the table above, in the same order. Each dot is a post, coloured by its true cluster at t = 0.5. Each line is a verified pair, labelled with its exact J. A grey line joins posts of one true cluster. A red line has J < t, so it is a false link that joins 2 true clusters, and the thickest red line is the weakest link. The top row is the MH-14 setting (k = 128, 32 × 4). The bottom row shows the same posts at k = 512, 256 × 2, with only the pairs among these posts. The data is in `lsh_20news_full_merges.tsv`.
+
+### A random sample of the clusters
+
+12 of the 249 LSH clusters with at least 3 posts at this setting, chosen by the smallest XXHash64 (seed 1) of the smallest post index of each cluster. 5 of them contain a merge.
+
+![A random sample of the clusters as graphs](lsh_20news_full_sample_clusters.svg)
+
+How to read it: each panel is one LSH cluster. Each dot is a post, coloured by its true cluster at t = 0.5, and a grey dot is in no true cluster. A solid line is a verified pair, labelled with its exact J, and it is red when J < t. A dashed line is a true pair (J ≥ t) between drawn posts that LSH did not verify; the chain still puts both posts in the cluster. The data is in `lsh_20news_full_sample_clusters.tsv`.
 
 ## The 20 true pairs with the highest J
 
