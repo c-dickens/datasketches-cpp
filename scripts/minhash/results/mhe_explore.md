@@ -53,8 +53,8 @@ AUC HN: related vs hard negative. AUC UN: related vs unrelated. wAUC HN: the sam
 | action_text_w2 | 222 / 1341 / 1904 / 2783.5 / 6143 | 0.998 | 1.000 | 0.308 | 0.997 | 0.628 [0.601, 0.657] |
 | action_text_w3 | 237 / 1576 / 2288 / 3416 / 7840 | 0.998 | 1.000 | 0.228 | 0.997 | 0.625 [0.597, 0.653] |
 | action_text_w5 | 250 / 1771 / 2607 / 3928 / 9297 | 0.998 | 1.000 | 0.167 | 0.997 | 0.615 [0.587, 0.643] |
-| action_text_news_w1 | 130 / 388 / 483 / 605 / 1278 | 0.993 | 0.999 | 0.665 | 0.987 | 0.626 [0.599, 0.655] |
-| action_text_news_w2 | 222 / 1209.5 / 1673 / 2372.5 / 4880 | 0.998 | 1.000 | 0.420 | 0.997 | 0.638 [0.612, 0.664] |
+| action_text_words_w1 | 130 / 388 / 483 / 605 / 1278 | 0.993 | 0.999 | 0.665 | 0.987 | 0.626 [0.599, 0.655] |
+| action_text_words_w2 | 222 / 1209.5 / 1673 / 2372.5 / 4880 | 0.998 | 1.000 | 0.420 | 0.997 | 0.638 [0.612, 0.664] |
 
 | Candidate | J related mean / median | J hard negative mean / median | J unrelated mean / median | J RR mean / median | J RU mean / median | J UU mean / median |
 |---|---|---|---|---|---|---|
@@ -69,8 +69,8 @@ AUC HN: related vs hard negative. AUC UN: related vs unrelated. wAUC HN: the sam
 | action_text_w2 | 0.139 / 0.136 | 0.041 / 0.040 | 0.030 / 0.029 | 0.146 / 0.143 | 0.132 / 0.129 | 0.136 / 0.132 |
 | action_text_w3 | 0.083 / 0.079 | 0.016 / 0.015 | 0.010 / 0.010 | 0.089 / 0.085 | 0.078 / 0.075 | 0.081 / 0.076 |
 | action_text_w5 | 0.045 / 0.041 | 0.004 / 0.004 | 0.002 / 0.002 | 0.049 / 0.045 | 0.042 / 0.038 | 0.043 / 0.039 |
-| action_text_news_w1 | 0.492 / 0.494 | 0.324 / 0.323 | 0.268 / 0.269 | 0.503 / 0.503 | 0.482 / 0.484 | 0.487 / 0.489 |
-| action_text_news_w2 | 0.213 / 0.211 | 0.072 / 0.070 | 0.048 / 0.047 | 0.222 / 0.220 | 0.204 / 0.202 | 0.209 / 0.207 |
+| action_text_words_w1 | 0.492 / 0.494 | 0.324 / 0.323 | 0.268 / 0.269 | 0.503 / 0.503 | 0.482 / 0.484 | 0.487 / 0.489 |
+| action_text_words_w2 | 0.213 / 0.211 | 0.072 / 0.070 | 0.048 / 0.047 | 0.222 / 0.220 | 0.204 / 0.202 | 0.209 / 0.207 |
 
 Share of pairs with set J at or above each level (deduplication and LSH need pairs above t):
 
@@ -87,24 +87,24 @@ Share of pairs with set J at or above each level (deduplication and LSH need pai
 | action_text_w2 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 | action_text_w3 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 | action_text_w5 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
-| action_text_news_w1 | 0.999 | 0.444 | 0.000 | 0.743 | 0.002 | 0.000 |
-| action_text_news_w2 | 0.019 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
+| action_text_words_w1 | 0.999 | 0.444 | 0.000 | 0.743 | 0.002 | 0.000 |
+| action_text_words_w2 | 0.019 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
 
-Outcome claims (Q14): files: no outcome difference is found with this item; commands: no outcome difference is found with this item; steps_w1: no outcome difference is found with this item; steps_w2: no outcome difference is found with this item; steps_w3: no outcome difference is found with this item; steps_w4: no outcome difference is found with this item; steps_w5: no outcome difference is found with this item; action_text_w1: **an outcome difference is found**; action_text_w2: **an outcome difference is found**; action_text_w3: **an outcome difference is found**; action_text_w5: **an outcome difference is found**; action_text_news_w1: **an outcome difference is found**; action_text_news_w2: **an outcome difference is found**.
+Outcome claims (Q14): files: no outcome difference is found with this item; commands: no outcome difference is found with this item; steps_w1: no outcome difference is found with this item; steps_w2: no outcome difference is found with this item; steps_w3: no outcome difference is found with this item; steps_w4: no outcome difference is found with this item; steps_w5: no outcome difference is found with this item; action_text_w1: **an outcome difference is found**; action_text_w2: **an outcome difference is found**; action_text_w3: **an outcome difference is found**; action_text_w5: **an outcome difference is found**; action_text_words_w1: **an outcome difference is found**; action_text_words_w2: **an outcome difference is found**.
 
 ## 3. Choice
 
 Q8:
 
-1. Rank by AUC (related vs hard negative): action_text_w3 0.998, action_text_w2 0.998, action_text_w5 0.998, action_text_news_w2 0.998, action_text_w1 0.997, action_text_news_w1 0.993, commands 0.966, files 0.904, steps_w2 0.680, steps_w4 0.675, steps_w5 0.675, steps_w3 0.673, steps_w1 0.664.
+1. Rank by AUC (related vs hard negative): action_text_w3 0.998, action_text_w2 0.998, action_text_w5 0.998, action_text_words_w2 0.998, action_text_w1 0.997, action_text_words_w1 0.993, commands 0.966, files 0.904, steps_w2 0.680, steps_w4 0.675, steps_w5 0.675, steps_w3 0.673, steps_w1 0.664.
 2. No candidate is left out for its set size (owner correction of 24 Nov 2026). The set sizes are in the table of section 2.
-3. Best AUC 0.998. Within 0.02 of it, with the median related J: action_text_w3 0.079, action_text_w2 0.136, action_text_w5 0.041, action_text_news_w2 0.211, action_text_w1 0.278, action_text_news_w1 0.494. The highest median related J is **action_text_news_w1**.
+3. Best AUC 0.998. Within 0.02 of it, with the median related J: action_text_w3 0.079, action_text_w2 0.136, action_text_w5 0.041, action_text_words_w2 0.211, action_text_w1 0.278, action_text_words_w1 0.494. The highest median related J is **action_text_words_w1**.
 4. Runner-up (the next candidate by the same rule: the near set by median related J, then the others by AUC): **action_text_w1**.
 5. The outcome-class AUCs (Q14) are reported in the table, and they do not take part in the choice.
 
-Space-split words against the 20 Newsgroups tokenizer (median related J, median hard-negative J, AUC HN, t): action_text_w1 0.278, 0.140, 0.997, 0.20; action_text_news_w1 0.494, 0.323, 0.993, 0.40.
+Space-split words against the word tokenizer (lower-case letters and digits) (median related J, median hard-negative J, AUC HN, t): action_text_w1 0.278, 0.140, 0.997, 0.20; action_text_words_w1 0.494, 0.323, 0.993, 0.40.
 
-### Chosen: action_text_news_w1
+### Chosen: action_text_words_w1
 
 Q9: Set AUC 0.993, weighted AUC 0.987, difference -0.006. The difference is less than 0.03, so the recommendation is **plain sets**.
 
@@ -128,7 +128,7 @@ Q13:
 
 ## 4. Human check
 
-Item: action_text_news_w1. The 20 pairs with the highest J, then the 10 pairs nearest to t = 0.40, from all sampled pairs. Items longer than 160 characters are cut, marked with …
+Item: action_text_words_w1. The 20 pairs with the highest J, then the 10 pairs nearest to t = 0.40, from all sampled pairs. Items longer than 160 characters are cut, marked with …
 
 ### Highest J
 
@@ -2979,4 +2979,4 @@ Outcome claims (Q14): patch_all: no outcome difference is found with this item; 
 
 ## 6. Run
 
-Run time: 307 s. Machine: arm, 10 CPUs, Darwin arm64, Python 3.14.7, DuckDB 2.0.1, NumPy 2.5.5.
+Run time: 290 s. Machine: arm, 10 CPUs, Darwin arm64, Python 3.14.7, DuckDB 2.0.1, NumPy 2.5.5.

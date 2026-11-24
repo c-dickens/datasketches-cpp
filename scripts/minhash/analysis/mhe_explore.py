@@ -47,9 +47,9 @@ OUT = HERE / "results" / "mhe_explore.md"
 N_PAIRS = 50_000
 N_BOOT = 2000
 TEXT_WIDTHS = [1, 2, 3, 5]
-NEWS_WIDTHS = [1, 2]
+WORDS_WIDTHS = [1, 2]
 BEHAVIOUR = (["files", "commands"] + [f"steps_w{w}" for w in range(1, 6)]
-             + [f"action_text_w{w}" for w in TEXT_WIDTHS] + [f"action_text_news_w{w}" for w in NEWS_WIDTHS])
+             + [f"action_text_w{w}" for w in TEXT_WIDTHS] + [f"action_text_words_w{w}" for w in WORDS_WIDTHS])
 J_LEVELS = [0.3, 0.5, 0.7]
 PATCH = ["patch_all", "patch_no_new"]
 K_CHOICES = [64, 128, 256]
@@ -130,8 +130,9 @@ def patch_items(patch, keep_new):
     return items
 
 
-def news_tokenize(text):
-    """news20::tokenize: ASCII letters to lower case, split on every byte that is not an ASCII letter or digit."""
+def words_tokenize(text):
+    """The word tokenizer (lower-case letters and digits), as news20::tokenize: ASCII letters to lower case,
+    split on every byte that is not an ASCII letter or digit."""
     return [t.decode() for t in re.findall(rb"[a-z0-9]+", text.encode().lower())]  # bytes.lower() is ASCII only
 
 
@@ -199,10 +200,10 @@ def self_check():
     assert auc([1], [2]) == 0.0
     assert shingles(["a", "b", "c"], 2) == ["a b", "b c"]
     # The cases of news20::tokenize in scripts/minhash/test/loader_test.cpp, and one non-ASCII byte.
-    assert news_tokenize("Hello, World! It's 2024") == ["hello", "world", "it", "s", "2024"]
-    assert news_tokenize("  --  ") == [] and news_tokenize("") == []
-    assert news_tokenize("a_b\tc\nD") == ["a", "b", "c", "d"]
-    assert news_tokenize("caf\u00c9x") == ["caf", "x"]
+    assert words_tokenize("Hello, World! It's 2024") == ["hello", "world", "it", "s", "2024"]
+    assert words_tokenize("  --  ") == [] and words_tokenize("") == []
+    assert words_tokenize("a_b\tc\nD") == ["a", "b", "c", "d"]
+    assert words_tokenize("caf\u00c9x") == ["caf", "x"]
     assert rank({"a": 0.99, "b": 0.98, "c": 0.90, "d": 0.95}, {"a": 0.1, "b": 0.4, "c": 0.9, "d": 0.5})[2] == ["b", "a", "d", "c"]
     # Plain Jaccard of the occurrence-encoded sets is the weighted Jaccard of the counts: 3 / 5.
     x, y = ["a", "a", "a", "b"], ["a", "b", "b", "c"]
@@ -232,7 +233,7 @@ def featurize(traj, model_patch, facts):
             break
     root = root or "/workspace/<none>"
     replies = {m["tool_call_id"]: (m["content"] or "") for m in traj if m["role"] == "tool"}
-    symbols, commands, files, words, news_words = [], [], [], [], []
+    symbols, commands, files, words, word_tokens = [], [], [], [], []
     for m in traj[2:]:
         if m["role"] != "assistant" or not m["tool_calls"]:
             continue
@@ -249,7 +250,7 @@ def featurize(traj, model_patch, facts):
                 if isinstance(v, str):
                     text = strip_cd(v, root) if key == "command" and fn == "execute_bash" else v
                     words.extend(text.split())
-                    news_words.extend(news_tokenize(text))
+                    word_tokens.extend(words_tokenize(text))
             if fn == "execute_bash":
                 cmd = str(args.get("command", ""))
                 facts["bash"] += 1
@@ -277,8 +278,8 @@ def featurize(traj, model_patch, facts):
     out = {"files": files, "commands": commands}
     for w in TEXT_WIDTHS:
         out[f"action_text_w{w}"] = shingles(words, w)
-    for w in NEWS_WIDTHS:
-        out[f"action_text_news_w{w}"] = shingles(news_words, w)
+    for w in WORDS_WIDTHS:
+        out[f"action_text_words_w{w}"] = shingles(word_tokens, w)
     for w in range(1, 6):
         out[f"steps_w{w}"] = shingles(symbols, w)
     patch = model_patch or ""
@@ -528,7 +529,7 @@ def main():
         lines.append(f"4. Runner-up (the next candidate by the same rule: the near set by median related J, "
                      f"then the others by AUC): **{runner}**.")
         lines.append("5. The outcome-class AUCs (Q14) are reported in the table, and they do not take part in the choice.")
-    derived = {c: derive(c) for c in (chosen, runner, "action_text_w1", "action_text_news_w1") if c}
+    derived = {c: derive(c) for c in (chosen, runner, "action_text_w1", "action_text_words_w1") if c}
     # ------------------------------------------------------------ report
     R = []
     lic = Path(__file__).read_text().split("\n\n", 1)[0].replace("# ", "").replace("#", "")
@@ -589,11 +590,11 @@ def main():
     R.append("Q8:\n")
     R += lines
     R.append("")
-    a_, b_ = res["action_text_w1"], res["action_text_news_w1"]
-    R.append("Space-split words against the 20 Newsgroups tokenizer (median related J, median hard-negative J, "
+    a_, b_ = res["action_text_w1"], res["action_text_words_w1"]
+    R.append("Space-split words against the word tokenizer (lower-case letters and digits) (median related J, median hard-negative J, "
              f"AUC HN, t): action_text_w1 {a_['med']['related']:.3f}, {a_['med']['hard negative']:.3f}, "
-             f"{a_['auc_hn']:.3f}, {derived['action_text_w1'][0]:.2f}; action_text_news_w1 {b_['med']['related']:.3f}, "
-             f"{b_['med']['hard negative']:.3f}, {b_['auc_hn']:.3f}, {derived['action_text_news_w1'][0]:.2f}.\n")
+             f"{a_['auc_hn']:.3f}, {derived['action_text_w1'][0]:.2f}; action_text_words_w1 {b_['med']['related']:.3f}, "
+             f"{b_['med']['hard negative']:.3f}, {b_['auc_hn']:.3f}, {derived['action_text_words_w1'][0]:.2f}.\n")
     for label, c in (("Chosen", chosen), ("Runner-up", runner)):
         if c:
             t_c, q9, q13, _ = derived[c]
