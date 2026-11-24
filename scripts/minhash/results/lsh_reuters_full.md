@@ -35,7 +35,7 @@ Written by `build/lsh_reuters_full` (`FULL=1 ./run_demos.sh`). The ticket is MH-
 - **Cluster recall:** the co-membership pairs that are in the true clusters and in the LSH clusters ÷ the co-membership pairs of the true clusters. **Cluster precision:** the same count ÷ the co-membership pairs of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a cluster counts every pair that a chain links.
 - **Merge:** an LSH cluster that joins 2 or more true clusters. Here a document in no true cluster counts as a true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.
 - **Index set and query set:** the held-out check splits the indexed documents in two. A document goes to the index set when XXHash64 of its document index (8 bytes, seed 2) is even, and to the query set otherwise. **Cross pair:** a pair with one document in each set. **Query hit rate:** of the queries with at least 1 true cross pair, the share that get at least 1 verified true cross pair.
-- **Kept set:** the documents that deduplication keeps: the smallest document of each cluster, and every document in no cluster. **Wrongly removed:** a document that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a document that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters.
+- **Kept set:** the documents that deduplication keeps: the smallest document of each cluster, and every document in no cluster. **Wrongly removed:** a document that the exact clusters keep and the LSH clusters remove. **Missed duplicate:** a document that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact clusters. These compare which document each side keeps. When a merge and a split meet, LSH can keep another document of the same true cluster, so both counts are upper bounds. **Lost true cluster:** a true cluster, or a document in no true cluster, with no document in the LSH kept set: real data loss. **Extra kept:** the LSH-kept documents beyond one for each true cluster that they cover: near-copies really left in.
 
 ## How deduplication works
 
@@ -235,16 +235,16 @@ How to read it: each panel is one LSH cluster. Each dot is a document, coloured 
 
 The same deduplication runs twice at each grid point: once on the true clusters, and once on the LSH clusters. Each keeps the smallest document of each cluster and every document in no cluster. The comparison shows what LSH costs a downstream task: documents lost by mistake, and near-copies left in. All grid points are in `lsh_reuters_full_kept.tsv`.
 
-| setting | k | b × r | t | documents | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate |
-|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| MH-14 setting | 128 | 32 × 4 | 0.5 | 20840 | 20129 | 20142 | 18 | 31 | 0.0009 | 0.0436 |
-| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 20840 | 19732 | 19727 | 34 | 29 | 0.0017 | 0.0262 |
-| recommended at t = 0.4 | 256 | 64 × 4 | 0.4 | 20840 | 20012 | 19998 | 34 | 20 | 0.0017 | 0.0242 |
-| recommended at t = 0.5 | 64 | 32 × 2 | 0.5 | 20840 | 20129 | 20126 | 28 | 25 | 0.0014 | 0.0352 |
-| recommended at t = 0.6 | 64 | 32 × 2 | 0.6 | 20840 | 20236 | 20230 | 17 | 11 | 0.0008 | 0.0182 |
-| recommended at t = 0.7 | 128 | 16 × 8 | 0.7 | 20840 | 20299 | 20304 | 5 | 10 | 0.0002 | 0.0185 |
-| recommended at t = 0.8 | 64 | 32 × 2 | 0.8 | 20840 | 20360 | 20358 | 13 | 11 | 0.0006 | 0.0229 |
-| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 20840 | 20431 | 20432 | 13 | 14 | 0.0006 | 0.0342 |
+| setting | k | b × r | t | documents | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | data-loss rate | missed-duplicate rate | lost true clusters | extra kept |
+|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| MH-14 setting | 128 | 32 × 4 | 0.5 | 20840 | 20129 | 20142 | 18 | 31 | 0.0009 | 0.0436 | 18 | 31 |
+| recommended at t = 0.3 | 512 | 256 × 2 | 0.3 | 20840 | 19732 | 19727 | 34 | 29 | 0.0017 | 0.0262 | 34 | 29 |
+| recommended at t = 0.4 | 256 | 64 × 4 | 0.4 | 20840 | 20012 | 19998 | 34 | 20 | 0.0017 | 0.0242 | 34 | 20 |
+| recommended at t = 0.5 | 64 | 32 × 2 | 0.5 | 20840 | 20129 | 20126 | 28 | 25 | 0.0014 | 0.0352 | 28 | 25 |
+| recommended at t = 0.6 | 64 | 32 × 2 | 0.6 | 20840 | 20236 | 20230 | 17 | 11 | 0.0008 | 0.0182 | 17 | 11 |
+| recommended at t = 0.7 | 128 | 16 × 8 | 0.7 | 20840 | 20299 | 20304 | 5 | 10 | 0.0002 | 0.0185 | 5 | 10 |
+| recommended at t = 0.8 | 64 | 32 × 2 | 0.8 | 20840 | 20360 | 20358 | 13 | 11 | 0.0006 | 0.0229 | 13 | 11 |
+| recommended at t = 0.9 | 64 | 32 × 2 | 0.9 | 20840 | 20431 | 20432 | 13 | 14 | 0.0006 | 0.0342 | 13 | 14 |
 
 ![Data-loss rate against missed-duplicate rate](lsh_reuters_full_kept.svg)
 
