@@ -31,6 +31,7 @@
 #include <functional>
 #include <iosfwd>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -196,6 +197,7 @@ constexpr std::size_t MAX_EXACT_PAIRS = 50000000;
 constexpr std::size_t WORST_MERGES = 5;
 constexpr std::size_t SAMPLE_CLUSTERS = 12;          // LSH clusters drawn at random for the report
 constexpr std::size_t SAMPLE_CLUSTER_MIN_SIZE = 3;   // only clusters with at least this many items
+constexpr uint64_t HELDOUT_SEED = 2;                 // the index set / query set split
 
 struct grid_point {
   uint16_t k;
@@ -333,6 +335,37 @@ std::array<band_rate, NUM_BINS> band_rates(const std::vector<double>& exact, con
 /// uint64_t, ties by key, in that order. All positions if there are fewer keys. For keys 0 .. n - 1,
 /// the positions are those of sample_indices(n, count, seed).
 std::vector<std::size_t> smallest_hashes(const std::vector<std::size_t>& keys, std::size_t count, uint64_t seed);
+
+/// True when XXHash64::hash(&key, 8, seed), with the key as uint64_t, is even: the item goes to the
+/// index set. Otherwise it goes to the query set.
+bool in_index_set(std::size_t key, uint64_t seed);
+
+/// The band-key bucket rule, computed in the demo: the items whose band keys equal the query's
+/// band keys in at least one band. It is the reference for minhash_lsh_index::query_candidates().
+class bucket_table {
+public:
+  /// keys_per_item[i] is band_keys of item ids[i]. Throws std::invalid_argument if the sizes differ.
+  bucket_table(const std::vector<std::vector<uint64_t>>& keys_per_item, const std::vector<std::size_t>& ids);
+  /// The ids of the candidates, sorted, with no duplicates.
+  std::vector<std::size_t> candidates(const std::vector<uint64_t>& query_keys) const;
+
+private:
+  std::vector<std::unordered_map<uint64_t, std::vector<std::size_t>>> bands_;  // only looked up
+};
+
+/// Deduplication by clusters: each component keeps its smallest item and removes the others, so an
+/// item is kept when label[i] == i (labels from components()). An item alone is kept.
+struct kept_counts {
+  std::size_t items = 0;
+  std::size_t kept_exact = 0;
+  std::size_t kept_lsh = 0;
+  std::size_t kept_both = 0;
+  std::size_t wrongly_removed = 0;    // kept by the exact clusters, removed by the LSH clusters
+  std::size_t missed_duplicates = 0;  // kept by the LSH clusters, removed by the exact clusters
+};
+
+/// Throws std::invalid_argument if the label sizes differ.
+kept_counts compare_kept(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label);
 
 }  // namespace demo
 

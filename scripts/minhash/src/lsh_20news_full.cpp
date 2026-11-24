@@ -38,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -149,6 +150,7 @@ struct grid_result {
   std::vector<demo::merge_example> worst;
   std::size_t cross_split = 0;  // cross-post pairs not in one true cluster, or not in one LSH cluster
   std::array<demo::band_rate, demo::NUM_BINS> bands{};  // the verified pairs of each J band
+  demo::kept_counts kept{};  // deduplication by the LSH clusters against the true clusters
 };
 
 struct estimate_row {
@@ -186,6 +188,104 @@ void write_file(const fs::path& path, const std::string& text) {
   if (!out) {
     throw std::runtime_error("cannot write " + path.string());
   }
+}
+
+struct heldout_row {
+  std::string setting;
+  const grid_result* in_sample = nullptr;
+  demo::pair_check cross{};
+  std::size_t queries_with_match = 0;  // queries with at least 1 true cross pair
+  std::size_t queries_hit = 0;         // of them, the queries with at least 1 verified true cross pair
+};
+
+// The held-out check: index only the items with in_a[u], and query with each other item through
+// query_candidates(). Only the cross pairs (one item in each set) count. Report only.
+std::vector<heldout_row> run_heldout(const std::vector<bool>& in_a, const std::vector<shingle_set>& sets,
+                                     const demo::edge_list& pair_nodes, const std::vector<double>& exact_j,
+                                     const std::unordered_map<uint64_t, std::size_t>& pair_index,
+                                     const std::vector<std::pair<std::string, const grid_result*>>& settings,
+                                     double test_alpha) {
+  const std::size_t n = in_a.size();
+  std::vector<std::size_t> index_ids;
+  std::vector<std::size_t> query_ids;
+  for (std::size_t u = 0; u < n; ++u) {
+    (in_a[u] ? index_ids : query_ids).push_back(u);
+  }
+  std::vector<std::size_t> cross;  // the stored pairs with one item in each set
+  for (std::size_t e = 0; e < pair_nodes.size(); ++e) {
+    if (in_a[pair_nodes[e].first] != in_a[pair_nodes[e].second]) {
+      cross.push_back(e);
+    }
+  }
+  std::vector<heldout_row> heldout;
+  std::map<uint16_t, std::vector<minhash_sketch>> sketches_at;  // built once for each k
+  for (const auto& setting : settings) {
+    const demo::grid_point& gp = setting.second->point;
+    auto& sk = sketches_at[gp.k];
+    if (sk.empty()) {
+      for (std::size_t u = 0; u < n; ++u) {
+        sk.push_back(demo::sketch_of(sets[u], gp.k));
+      }
+    }
+    const auto bands = static_cast<uint16_t>(gp.bands);
+    minhash_lsh_index index(bands, gp.threshold);
+    std::vector<std::vector<uint64_t>> index_keys;
+    for (const std::size_t u : index_ids) {
+      index.add(u, sk[u]);
+      const auto keys = minhash_lsh_index::band_keys(sk[u], bands);
+      index_keys.emplace_back(keys.begin(), keys.end());
+    }
+    const demo::bucket_table table(index_keys, index_ids);
+    std::set<std::pair<std::size_t, std::size_t>> verified;  // (smaller, larger)
+    for (const std::size_t q : query_ids) {
+      const auto found = index.query_candidates(sk[q]);
+      const auto keys = minhash_lsh_index::band_keys(sk[q], bands);
+      if (std::vector<std::size_t>(found.begin(), found.end()) !=
+          table.candidates(std::vector<uint64_t>(keys.begin(), keys.end()))) {
+        throw std::runtime_error("query_candidates() differs from the band-key bucket rule at k = " +
+                                 std::to_string(gp.k) + ", r = " + std::to_string(gp.rows));
+      }
+      for (const uint64_t a : found) {
+        if (sk[q].jaccard(sk[a]) >= gp.threshold) {
+          verified.insert(std::minmax(q, static_cast<std::size_t>(a)));
+        }
+      }
+    }
+    const auto q_table = demo::full_band_given_matches(gp.rows, gp.bands);
+    const std::size_t m = demo::min_matches(gp.threshold, gp.k);
+    std::vector<double> cross_j;
+    std::vector<double> cross_prob;
+    std::vector<bool> cross_verified;
+    std::vector<bool> has_match(n, false);
+    std::vector<bool> hit(n, false);
+    for (const std::size_t e : cross) {
+      const double j = exact_j[e];
+      const bool v = verified.count(pair_nodes[e]) > 0;
+      cross_j.push_back(j);
+      cross_prob.push_back(demo::reported_tail(demo::binomial_pmf(j, gp.k), q_table)[m]);
+      cross_verified.push_back(v);
+      if (j >= gp.threshold) {
+        const std::size_t query = in_a[pair_nodes[e].first] ? pair_nodes[e].second : pair_nodes[e].first;
+        has_match[query] = true;
+        hit[query] = hit[query] || v;
+      }
+    }
+    std::size_t disjoint = 0;  // verified cross pairs with J = 0
+    for (const auto& pr : verified) {
+      disjoint += pair_index.count(static_cast<uint64_t>(pr.first) * n + pr.second) == 0 ? 1 : 0;
+    }
+    heldout_row row;
+    row.setting = setting.first;
+    row.in_sample = setting.second;
+    // report only: the pass flag is not used
+    row.cross = demo::check_pair_tests(cross_j, cross_prob, cross_verified, disjoint, gp.threshold, test_alpha);
+    for (const std::size_t q : query_ids) {
+      row.queries_with_match += has_match[q] ? 1 : 0;
+      row.queries_hit += hit[q] ? 1 : 0;
+    }
+    heldout.push_back(row);
+  }
+  return heldout;
 }
 
 int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
@@ -492,6 +592,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         }
         g.clusters = demo::compare_clusters(lsh_label, true_label[ti]);
         g.worst = demo::worst_merges(lsh_label, true_label[ti], edges, edge_j, demo::WORST_MERGES);
+        g.kept = demo::compare_kept(lsh_label, true_label[ti]);
         for (const auto& pr : cross) {
           if (true_label[ti][pr.first] != true_label[ti][pr.second] || lsh_label[pr.first] != lsh_label[pr.second]) {
             ++g.cross_split;
@@ -607,6 +708,85 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
     }
   }
 
+  // The recommended (k, b x r) of each t: the smallest k with a setting that meets the target, and at that k
+  // the largest min(recall, precision), ties by the smaller r.
+  std::vector<const grid_result*> recommended(n_t, nullptr);
+  for (std::size_t ti = 0; ti < n_t; ++ti) {
+    const grid_result*& best = recommended[ti];
+    for (std::size_t ki = 0; ki < demo::FULL_K_VALUES.size() && best == nullptr; ++ki) {
+      for (std::size_t ri = 0; ri < n_rows; ++ri) {
+        const auto& g = results[(ki * n_rows + ri) * n_t + ti];
+        const auto score = [](const grid_result& x) { return std::min(recall_of(x.pairs), precision_of(x.pairs)); };
+        if (meets_target(g) && (best == nullptr || score(g) > score(*best))) {
+          best = &g;
+        }
+      }
+    }
+  }
+  // The settings of the held-out check and of the kept-set table: the MH-14 setting, then the recommended
+  // setting of each t, each once.
+  std::vector<std::pair<std::string, const grid_result*>> settings;
+  if (ref != nullptr) {
+    settings.emplace_back("MH-14 setting", ref);
+  }
+  for (std::size_t ti = 0; ti < n_t; ++ti) {
+    if (recommended[ti] == nullptr) {
+      continue;
+    }
+    const std::string label = "recommended at t = " + fixed(demo::FULL_THRESHOLDS[ti], 1);
+    const auto same = std::find_if(settings.begin(), settings.end(),
+                                   [&](const auto& s) { return s.second == recommended[ti]; });
+    if (same == settings.end()) {
+      settings.emplace_back(label, recommended[ti]);
+    } else {
+      same->first += ", " + label;
+    }
+  }
+
+  // Held-out queries: index only the index set, and query with each post of the query set.
+  std::vector<bool> in_a(n);
+  std::size_t index_size = 0;
+  for (std::size_t u = 0; u < n; ++u) {
+    in_a[u] = demo::in_index_set(post_of[u], demo::HELDOUT_SEED);
+    index_size += in_a[u] ? 1 : 0;
+  }
+  const std::size_t query_size = n - index_size;
+  const auto heldout_start = steady::now();
+  const auto heldout = run_heldout(in_a, sets, pair_nodes, exact_j, pair_index, settings, test_alpha);
+  std::cout << "held-out queries: " << fixed(seconds_since(heldout_start), 1) << " s\n";
+
+  std::ostringstream heldout_tsv;
+  heldout_tsv << tsv_licence() << meta.str() << "# heldout_seed=" << demo::HELDOUT_SEED << "\n# index_size="
+              << index_size << "\n# query_size=" << query_size << "\n"
+              << "Setting\tK\tR\tB\tT\tTrueCross\tVerifiedCross\tVerifiedTrueCross\tRecall\tPrecision\tExpectedTrue\t"
+                 "ExpectedFalse\tPRecall\tPPrecision\tQueriesWithMatch\tQueriesHit\tHitRate\tInSampleRecall\t"
+                 "InSamplePrecision\n";
+  for (const auto& h : heldout) {
+    const auto& c = h.cross.counts;
+    const auto& in = h.in_sample->pairs.counts;
+    const auto& gp = h.in_sample->point;
+    heldout_tsv << h.setting << "\t" << gp.k << "\t" << gp.rows << "\t" << gp.bands << "\t" << fixed(gp.threshold, 1)
+                << "\t" << c.similar << "\t" << c.verified << "\t" << c.both << "\t" << ratio(c.both, c.similar) << "\t"
+                << ratio(c.both, c.verified) << "\t" << fixed(h.cross.expected_true, 2) << "\t"
+                << fixed(h.cross.expected_false, 2) << "\t" << general(h.cross.p_recall) << "\t"
+                << general(h.cross.p_precision) << "\t" << h.queries_with_match << "\t" << h.queries_hit << "\t"
+                << ratio(h.queries_hit, h.queries_with_match) << "\t" << ratio(in.both, in.similar) << "\t"
+                << ratio(in.both, in.verified) << "\n";
+  }
+
+  std::ostringstream kept_tsv;
+  kept_tsv << tsv_licence() << meta.str()
+           << "K\tR\tB\tT\tDocuments\tKeptExact\tKeptLSH\tKeptBoth\tWronglyRemoved\tMissedDuplicates\tRemovedExact\t"
+              "RemovedLSH\tDataLossRate\tMissedDuplicateRate\n";
+  for (const auto& g : results) {
+    const auto& k = g.kept;
+    kept_tsv << g.point.k << "\t" << g.point.rows << "\t" << g.point.bands << "\t" << fixed(g.point.threshold, 1)
+             << "\t" << k.items << "\t" << k.kept_exact << "\t" << k.kept_lsh << "\t" << k.kept_both << "\t"
+             << k.wrongly_removed << "\t" << k.missed_duplicates << "\t" << k.items - k.kept_exact << "\t"
+             << k.items - k.kept_lsh << "\t" << ratio(k.wrongly_removed, k.kept_exact) << "\t"
+             << ratio(k.missed_duplicates, k.items - k.kept_exact) << "\n";
+  }
+
   std::ostringstream pairs_tsv;
   pairs_tsv << tsv_licence() << meta.str()
             << "K\tR\tB\tT\tMinMatches\tTruePairs\tFalsePairs\tCandidates\tReported\tReportedTrue\tReportedFalse\t"
@@ -681,7 +861,29 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "of the LSH clusters. These are not the same quantities as pair recall and pair precision, because a "
         "cluster counts every pair that a chain links.\n";
   md << "- **Merge:** an LSH cluster that joins 2 or more true clusters. Here a post in no true cluster counts as a "
-        "true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.\n\n";
+        "true cluster of its own. **Split:** a true cluster that LSH divides into 2 or more parts.\n";
+  md << "- **Index set and query set:** the held-out check splits the indexed posts in two. A post goes to the "
+        "index set when XXHash64 of its post index (8 bytes, seed "
+     << demo::HELDOUT_SEED
+     << ") is even, and to the query set otherwise. **Cross pair:** a pair with one post in each set. **Query hit "
+        "rate:** of the queries with at least 1 true cross pair, the share that get at least 1 verified true cross "
+        "pair.\n";
+  md << "- **Kept set:** the posts that deduplication keeps: the smallest post of each cluster, and every post in "
+        "no cluster. **Wrongly removed:** a post that the exact clusters keep and the LSH clusters remove. **Missed "
+        "duplicate:** a post that the LSH clusters keep and the exact clusters remove. **Data-loss rate:** wrongly "
+        "removed ÷ kept by the exact clusters. **Missed-duplicate rate:** missed duplicates ÷ removed by the exact "
+        "clusters.\n\n";
+  md << "## How deduplication works\n\n";
+  md << "MinHash does not store the posts or their items. The index keeps a copy of each post's sketch, which is "
+        "its k slot values, and a table of band keys, so that it can find likely near-duplicates fast. What to do "
+        "with them, here deduplication, is the next step.\n\n";
+  md << "1. LSH finds the candidate pairs, and the program estimates Ĵ for each one.\n";
+  md << "2. A pair with Ĵ ≥ t is a near-duplicate, so it becomes a link. A pair below t is not a duplicate, so no "
+        "link is made. The pruning removes links, not documents.\n";
+  md << "3. The links form clusters, which are groups of near-copies.\n";
+  md << "4. Deduplication keeps one document from each cluster and removes the others. A document in no cluster is "
+        "kept as it is.\n";
+  md << "5. The downstream task, for example training or analysis, gets the kept documents.\n\n";
   md << "## LSH guarantee\n\n";
   md << "An LSH family is (r, cr, p1, p2)-sensitive if pairs at distance d ≤ r collide with probability at least "
         "p1, and pairs at distance d ≥ cr collide with probability at most p2. For MinHash the distance is the "
@@ -754,16 +956,7 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "smaller r.\n\n";
   md << "| t | k | b × r | recall | precision |\n|---:|---:|---|---:|---:|\n";
   for (std::size_t ti = 0; ti < n_t; ++ti) {
-    const grid_result* best = nullptr;
-    for (std::size_t ki = 0; ki < demo::FULL_K_VALUES.size() && best == nullptr; ++ki) {
-      for (std::size_t ri = 0; ri < n_rows; ++ri) {
-        const auto& g = results[(ki * n_rows + ri) * n_t + ti];
-        const auto score = [](const grid_result& x) { return std::min(recall_of(x.pairs), precision_of(x.pairs)); };
-        if (meets_target(g) && (best == nullptr || score(g) > score(*best))) {
-          best = &g;
-        }
-      }
-    }
+    const grid_result* best = recommended[ti];
     md << "| " << fixed(demo::FULL_THRESHOLDS[ti], 1) << " | ";
     if (best == nullptr) {
       md << "none reaches the target | - | - | - |\n";
@@ -826,6 +1019,34 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
         "The dotted line marks t. Right of it, the rate is the recall for pairs of that J; left of it, the rate is "
         "the false-verify rate. The right panel shows the same rates on a log scale, so small rates are visible "
         "(a band with no verified pair is not drawn there).\n\n";
+  md << "## Held-out queries\n\n";
+  md << "The sections above index every post and cluster them, which is the use case \"find near-copies inside a "
+        "corpus\". This section tests the other use case: build the index once, then query it with posts that it "
+        "has never seen. The index holds only the index set ("
+     << index_size << " posts). Each post of the query set (" << query_size
+     << " posts) calls `query_candidates()`, and the candidates with Ĵ ≥ t are verified. The program asserts that "
+        "the candidates equal the band-key bucket rule computed in the demo. Only the cross pairs count. The "
+        "p-values are report only, with no PASS or FAIL. The data is in `lsh_20news_full_heldout.tsv`.\n\n";
+  md << "| setting | k | b × r | t | true cross pairs | query recall | in-sample recall | query precision | "
+        "in-sample precision | verified true: measured / expected | verified false: measured / expected | "
+        "p recall | p precision | query hit rate |\n";
+  md << "|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n";
+  for (const auto& h : heldout) {
+    const auto& c = h.cross.counts;
+    const auto& in = h.in_sample->pairs.counts;
+    const auto& gp = h.in_sample->point;
+    md << "| " << h.setting << " | " << gp.k << " | " << gp.bands << " × " << gp.rows << " | " << fixed(gp.threshold, 1)
+       << " | " << c.similar << " | " << ratio(c.both, c.similar) << " | " << ratio(in.both, in.similar) << " | "
+       << ratio(c.both, c.verified) << " | " << ratio(in.both, in.verified) << " | " << c.both << " / "
+       << fixed(h.cross.expected_true, 1) << " | " << c.verified - c.both << " / " << fixed(h.cross.expected_false, 1)
+       << " | " << general(h.cross.p_recall) << " | " << general(h.cross.p_precision) << " | "
+       << ratio(h.queries_hit, h.queries_with_match) << " (" << h.queries_hit << " of " << h.queries_with_match
+       << ") |\n";
+  }
+  md << "\nHow to read it: query recall and precision should be close to the in-sample figures of the same "
+        "setting, because a query post meets the same band keys and the same Ĵ test as an indexed post. The "
+        "measured and expected counts should agree, as in the pair check. The query hit rate says how often a new "
+        "post with a near-copy in the index finds at least one of them.\n\n";
   md << "## Estimate error\n\n";
   md << "On the stored pairs with exact J ≥ " << fixed(demo::ESTIMATE_MIN_J, 1)
      << ". The ratio is the RMSE divided by the RMS of √(J (1 − J) / k), so 1 is the theory.\n\n";
@@ -891,6 +1112,25 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
           "the chain still puts both posts in the cluster. The data is in `lsh_20news_full_sample_clusters.tsv`.\n\n";
   }
 
+  md << "## Kept set (deduplication)\n\n";
+  md << "The same deduplication runs twice at each grid point: once on the true clusters, and once on the LSH "
+        "clusters. Each keeps the smallest post of each cluster and every post in no cluster. The comparison shows "
+        "what LSH costs a downstream task: posts lost by mistake, and near-copies left in. All grid points are in "
+        "`lsh_20news_full_kept.tsv`.\n\n";
+  md << "| setting | k | b × r | t | posts | kept (exact) | kept (LSH) | wrongly removed | missed duplicates | "
+        "data-loss rate | missed-duplicate rate |\n|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|\n";
+  for (const auto& setting : settings) {
+    const auto& g = *setting.second;
+    const auto& k = g.kept;
+    md << "| " << setting.first << " | " << g.point.k << " | " << g.point.bands << " × " << g.point.rows << " | "
+       << fixed(g.point.threshold, 1) << " | " << k.items << " | " << k.kept_exact << " | " << k.kept_lsh << " | "
+       << k.wrongly_removed << " | " << k.missed_duplicates << " | " << ratio(k.wrongly_removed, k.kept_exact) << " | "
+       << ratio(k.missed_duplicates, k.items - k.kept_exact) << " |\n";
+  }
+  md << "\n![Data-loss rate against missed-duplicate rate](lsh_20news_full_kept.svg)\n\n";
+  md << "How to read it: one panel for each r, and one curve for each k, with a point for each t. Lower left is "
+        "good. A point high on the y axis removes posts that have no near-copy (data loss, mostly from merges). A "
+        "point far right keeps near-copies that should go (missed duplicates, mostly from splits).\n\n";
   md << "## The " << TOP_PAIRS << " true pairs with the highest J\n\n";
   md << "Ties by post index. The shingles show whether quoted text or boilerplate makes the pairs similar.\n\n";
   md << "| posts | exact J | 3 shared shingles |\n|---|---:|---|\n";
@@ -944,6 +1184,8 @@ int run(bool smoke, const std::string& data_arg, const std::string& out_arg) {
   write_file(out_dir / "lsh_20news_full_merges.tsv", merges_tsv.str());
   write_file(out_dir / "lsh_20news_full_bands.tsv", bands_tsv.str());
   write_file(out_dir / "lsh_20news_full_sample_clusters.tsv", sample_tsv.str());
+  write_file(out_dir / "lsh_20news_full_heldout.tsv", heldout_tsv.str());
+  write_file(out_dir / "lsh_20news_full_kept.tsv", kept_tsv.str());
   write_file(out_dir / "lsh_20news_full_pairs.tsv", pairs_tsv.str());
   write_file(out_dir / "lsh_20news_full_clusters.tsv", clusters_tsv.str());
   write_file(out_dir / "lsh_20news_full_estimates.tsv", estimates_tsv.str());

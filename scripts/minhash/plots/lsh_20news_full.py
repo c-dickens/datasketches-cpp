@@ -21,7 +21,7 @@
 # ///
 
 # The figures of the full-data LSH check on 20 Newsgroups (MH-14b). results/lsh_20news_full.md shows them.
-#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 8 lsh_20news_full_*.svg files
+#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 9 lsh_20news_full_*.svg files
 #   uvx marimo edit plots/lsh_20news_full.py           opens the notebook
 
 import marimo
@@ -55,11 +55,13 @@ def _():
     merges = pd.read_csv(results_dir / "lsh_20news_full_merges.tsv", sep="\t", comment="#")
     bands = pd.read_csv(results_dir / "lsh_20news_full_bands.tsv", sep="\t", comment="#")
     samples = pd.read_csv(results_dir / "lsh_20news_full_sample_clusters.tsv", sep="\t", comment="#")
+    kept = pd.read_csv(results_dir / "lsh_20news_full_kept.tsv", sep="\t", comment="#")
     threshold = float(next(line for line in (results_dir / "lsh_20news_full_merges.tsv").read_text().splitlines()
                            if line.startswith("# threshold=")).split("=")[1])
     test_alpha = float(next(line for line in (results_dir / "lsh_20news_full_pairs.tsv").read_text().splitlines()
                             if line.startswith("# test_alpha=")).split("=")[1])
-    return LICENCE, bands, clusters, estimates, merges, mo, pairs, plt, results_dir, samples, test_alpha, threshold
+    return (LICENCE, bands, clusters, estimates, kept, merges, mo, pairs, plt, results_dir, samples, test_alpha,
+            threshold)
 
 
 @app.cell
@@ -370,6 +372,34 @@ def _(plt, samples, save_svg, threshold):
         return save_svg(fig, "lsh_20news_full_sample_clusters.svg")
 
     _samples()
+    return
+
+
+@app.cell
+def _(kept, plt, save_svg):
+    def _kept():
+        """Deduplication by LSH against the exact clusters: data-loss rate against missed-duplicate rate."""
+        k_values = sorted(kept["K"].unique())
+        rows = sorted(kept["R"].unique())
+        colours = [plt.get_cmap("viridis")(i / max(len(k_values) - 1, 1) * 0.9) for i in range(len(k_values))]
+        fig, axes = plt.subplots(1, len(rows), figsize=(4 * len(rows), 4.2), sharex=True, sharey=True)
+        for ax, r in zip(axes, rows):
+            for colour, k in zip(colours, k_values):
+                e = kept[(kept["K"] == k) & (kept["R"] == r)].sort_values("T")
+                ax.plot(e["MissedDuplicateRate"], e["DataLossRate"], "o-", color=colour, markersize=3, linewidth=1.2,
+                        label=f"k = {k}")
+                for _, p in e.iloc[[0, -1]].iterrows():  # the ends of the curve: t = 0.3 and t = 0.9
+                    ax.annotate(f"t={p['T']:.1f}", (p["MissedDuplicateRate"], p["DataLossRate"]), fontsize=6,
+                                xytext=(3, 3), textcoords="offset points", color=colour)
+            ax.set_title(f"r = {r} rows per band")
+            ax.set_xlabel("missed-duplicate rate")
+        axes[0].set_ylabel("data-loss rate")
+        axes[0].legend(fontsize=7)
+        fig.suptitle("Deduplication with the LSH clusters against the exact clusters (lower left is good)")
+        fig.tight_layout()
+        return save_svg(fig, "lsh_20news_full_kept.svg")
+
+    _kept()
     return
 
 
