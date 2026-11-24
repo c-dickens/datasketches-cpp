@@ -19,8 +19,8 @@
 #
 # The one command that runs every MinHash demo: it gets the data, builds the
 # demos, and runs them. Later tickets add their demos here.
-# FULL=1 also runs the full-data LSH check (MH-14b), which takes about 15 minutes
-# without its exact-pair cache.
+# FULL=1 also runs the full-data LSH checks on 20 Newsgroups (MH-14b) and on
+# Reuters-21578 (MH-14c). Each takes about 15 minutes without its exact-pair cache.
 
 set -euo pipefail
 
@@ -43,16 +43,24 @@ build/minhash_20news data/20_newsgroups results/minhash_20news.md
 echo "== 20 Newsgroups: LSH correctness =="
 build/lsh_20news data/20_newsgroups results/lsh_20news.md
 
-if [ "${FULL:-0}" = 1 ]; then
-  echo "== 20 Newsgroups: full-data LSH check =="
-  cache=data/lsh_20news_full_exact_pairs.tsv
-  packed=results/lsh_20news_full_exact_pairs.tsv.gz
+full_check() {  # program and file stem, data directory
+  local cache="data/$1_exact_pairs.tsv"
+  local packed="results/$1_exact_pairs.tsv.gz"
   # Unpack the committed cache when data/ has none, or one with another header (its first 6 lines),
   # for example from an older revision. The program runs the exact pass only if neither matches.
   if [ -f "$packed" ] && ! cmp -s <(head -n 6 "$cache" 2>/dev/null) <(gunzip -c "$packed" | head -n 6); then
     gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
   fi
-  build/lsh_20news_full data/20_newsgroups results
+  "build/$1" "$2" results
   gzip -9nc "$cache" > "$packed"
-  uv run plots/lsh_20news_full.py results
+  uv run plots/lsh_20news_full.py results "$1"
+}
+
+if [ "${FULL:-0}" = 1 ]; then
+  echo "== 20 Newsgroups: full-data LSH check =="
+  full_check lsh_20news_full data/20_newsgroups
+
+  echo "== Reuters-21578: full-data LSH check =="
+  data/get_reuters.sh
+  full_check lsh_reuters_full data/reuters21578
 fi

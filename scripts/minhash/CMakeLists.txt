@@ -46,23 +46,27 @@ add_executable(news20_stats src/news20_stats.cpp)
 target_link_libraries(news20_stats PRIVATE news20)
 target_compile_options(news20_stats PRIVATE ${DEMO_WARNINGS})
 
-add_library(demo STATIC src/demo.cpp)
+add_library(demo STATIC src/demo.cpp src/full_check.cpp)
 target_include_directories(demo PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(demo PUBLIC cxx_std_17)
 target_compile_options(demo PRIVATE ${DEMO_WARNINGS})
-target_link_libraries(demo PUBLIC datasketches common)
+target_link_libraries(demo PUBLIC datasketches common news20)
 
 add_executable(minhash_20news src/minhash_20news.cpp)
-target_link_libraries(minhash_20news PRIVATE news20 demo)
+target_link_libraries(minhash_20news PRIVATE demo)
 target_compile_options(minhash_20news PRIVATE ${DEMO_WARNINGS})
 
 add_executable(lsh_20news src/lsh_20news.cpp)
-target_link_libraries(lsh_20news PRIVATE news20 demo)
+target_link_libraries(lsh_20news PRIVATE demo)
 target_compile_options(lsh_20news PRIVATE ${DEMO_WARNINGS})
 
 add_executable(lsh_20news_full src/lsh_20news_full.cpp)
-target_link_libraries(lsh_20news_full PRIVATE news20 demo)
+target_link_libraries(lsh_20news_full PRIVATE demo)
 target_compile_options(lsh_20news_full PRIVATE ${DEMO_WARNINGS})
+
+add_executable(lsh_reuters_full src/lsh_reuters_full.cpp)
+target_link_libraries(lsh_reuters_full PRIVATE demo)
+target_compile_options(lsh_reuters_full PRIVATE ${DEMO_WARNINGS})
 
 # The characterisation harness (MH-16). The TSV metadata records the commit, the compiler and
 # the flags. The commit is read at configure time, so reconfigure before a run.

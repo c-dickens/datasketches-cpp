@@ -668,11 +668,11 @@ uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vecto
   return hasher.hash();
 }
 
-std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts,
-                               uint64_t input_xxh64) {
+std::string exact_pairs_header(const std::string& what, const std::string& archive_sha256, std::size_t shingle_words,
+                               std::size_t indexed_posts, uint64_t input_xxh64) {
   std::array<char, 17> hex{};
   std::snprintf(hex.data(), hex.size(), "%016llx", static_cast<unsigned long long>(input_xxh64));  // NOLINT(google-runtime-int): the type of %llx
-  return "# lsh_20news_full exact pairs (MH-14b): i, j, |A n B|, |A u B| of each pair of indexed posts with J > 0\n"
+  return "# " + what + "\n" +
          "# archive_sha256=" + archive_sha256 + "\n" +
          "# shingle_words=" + std::to_string(shingle_words) + "\n" +
          "# indexed_posts=" + std::to_string(indexed_posts) + "\n" +
@@ -724,6 +724,80 @@ bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<e
                              std::to_string(expected));
   }
   return true;
+}
+
+std::string decode_sgml_entities(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  for (std::size_t i = 0; i < text.size();) {
+    if (text[i] == '&') {
+      const std::size_t end = text.find(';', i);
+      const std::string name = end == std::string::npos ? std::string() : text.substr(i + 1, end - i - 1);
+      int code = -1;
+      if (name == "lt") {
+        code = '<';
+      } else if (name == "gt") {
+        code = '>';
+      } else if (name == "amp") {
+        code = '&';
+      } else if (name.size() >= 2 && name.size() <= 4 && name[0] == '#' &&
+                 std::all_of(name.begin() + 1, name.end(), [](char c) { return c >= '0' && c <= '9'; })) {
+        code = std::stoi(name.substr(1));
+        code = code < 256 ? code : -1;
+      }
+      if (code >= 0) {
+        out += static_cast<char>(code);
+        i = end + 1;
+        continue;
+      }
+    }
+    out += text[i];
+    ++i;
+  }
+  return out;
+}
+
+namespace {
+
+// The text between the first <tag> and the next </tag> in [begin, end), or "" if there is none.
+std::string element_text(const std::string& text, std::size_t begin, std::size_t end, const std::string& tag) {
+  const std::string open = "<" + tag + ">";
+  const std::size_t start = text.find(open, begin);
+  if (start == std::string::npos || start >= end) {
+    return "";
+  }
+  const std::size_t stop = text.find("</" + tag + ">", start);
+  if (stop == std::string::npos || stop > end) {
+    return "";
+  }
+  return text.substr(start + open.size(), stop - start - open.size());
+}
+
+}  // namespace
+
+std::vector<reuters_doc> parse_reuters_sgm(const std::string& text) {
+  std::vector<reuters_doc> docs;
+  const std::string open = "<REUTERS";
+  const std::string close = "</REUTERS>";
+  for (std::size_t at = text.find(open); at != std::string::npos; at = text.find(open, at)) {
+    const std::size_t end = text.find(close, at);
+    const std::size_t tag_end = text.find('>', at);
+    if (end == std::string::npos || tag_end == std::string::npos || tag_end > end) {
+      throw std::runtime_error("a <REUTERS> element has no </REUTERS>");
+    }
+    const std::string tag = text.substr(at, tag_end - at);
+    const std::string attr = " NEWID=\"";
+    const std::size_t id_at = tag.find(attr);
+    const std::size_t id_end = id_at == std::string::npos ? id_at : tag.find('"', id_at + attr.size());
+    if (id_end == std::string::npos) {
+      throw std::runtime_error("a <REUTERS> element has no NEWID: " + tag);
+    }
+    docs.push_back(reuters_doc{tag.substr(id_at + attr.size(), id_end - id_at - attr.size()),
+                               decode_sgml_entities(element_text(text, tag_end, end, "TITLE")) + "\n" +
+                                   decode_sgml_entities(element_text(text, tag_end, end, "BODY"))});
+    at = end + close.size();
+  }
+  return docs;
 }
 
 }  // namespace demo
