@@ -31,7 +31,10 @@
 #    error if fewer than N task instances qualify.
 # 4. Writes one JSON object per trajectory of those task instances:
 #    trajectory_id, instance_id, resolved, exit_status and steps. The steps are
-#    the messages from the 3rd message on, each as {role, fn, args, out}.
+#    the messages from the 3rd message on, each as {role, fn, args, out,
+#    out_tail}. out is the content cut to 1,000 characters. out_tail is the
+#    last 200 characters of a content longer than 1,000 characters, and null
+#    otherwise, so that the exit code at the end of a bash reply is kept.
 #
 # Files that already exist are not downloaded again. The output file is always
 # rewritten.
@@ -168,7 +171,8 @@ COPY (
         'fn': CASE WHEN m.role = 'tool' THEN m.name
                    ELSE m.tool_calls[1].function.name END,
         'args': m.tool_calls[1].function.arguments,
-        'out': left(m.content, 1000)
+        'out': left(m.content, 1000),
+        'out_tail': CASE WHEN length(m.content) > 1000 THEN right(m.content, 200) END
       }
     ) AS steps
   FROM read_parquet('$parquet') AS t

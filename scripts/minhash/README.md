@@ -90,12 +90,21 @@ object per trajectory of those task instances:
 
 - `trajectory_id`, `instance_id`, `resolved` (1 or 0, as in the source) and
   `exit_status`;
-- `steps`: the messages from the 3rd message on, each as `{role, fn, args, out}`:
+- `steps`: the messages from the 3rd message on, each as
+  `{role, fn, args, out, out_tail}`:
   - `fn` is the tool name: the first tool call's function for an assistant
     message, the `name` of a tool message, and `null` otherwise;
   - `args` is the first tool call's arguments, as the JSON string of the source,
     or `null`;
-  - `out` is the message content, cut to 1,000 characters.
+  - `out` is the message content, cut to 1,000 characters;
+  - `out_tail` is the last 200 characters of the content when the content is
+    longer than 1,000 characters, and `null` otherwise, because `out` then
+    holds the whole content.
+
+**Why `out_tail`.** A bash reply ends with its exit code. With `out` alone,
+42% of the bash replies in the 100-instance export lose it. With `out_tail`,
+the exit code is readable in 99.7% of them, the same share as in the full
+dataset.
 
 ## MinHash correctness on 20 Newsgroups
 
