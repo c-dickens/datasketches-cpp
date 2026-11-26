@@ -209,7 +209,7 @@ double low_bin_j(std::size_t b) {
 
 void write_low_bins(const fs::path& path, const std::string& header, const low_bins& bins) {
   std::ostringstream out;
-  out << header << "# bins=" << bins.all.size() << "\n";
+  out << tsv_licence() << header << "# bins=" << bins.all.size() << "\n";
   for (std::size_t b = 0; b < bins.all.size(); ++b) {
     out << b << "\t" << bins.all[b] << "\t" << bins.cross[b] << "\n";
   }
@@ -225,7 +225,7 @@ bool read_low_bins(const fs::path& path, const std::string& header, std::size_t 
     return false;
   }
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  const std::string head = header + "# bins=" + std::to_string(n_bins) + "\n";
+  const std::string head = tsv_licence() + header + "# bins=" + std::to_string(n_bins) + "\n";
   if (text.compare(0, head.size(), head) != 0) {
     return false;
   }
