@@ -522,7 +522,7 @@ TEST_CASE("input_fingerprint changes when any set or id changes", "[demo]") {
 }
 
 TEST_CASE("the exact-pair cache refuses a wrong header", "[demo]") {
-  const std::string header = demo::exact_pairs_header("abc", 5, 3, 42);
+  const std::string header = demo::exact_pairs_header("w", "abc", 5, 3, 42);
   const std::vector<demo::exact_pair> pairs{{0, 1, 2, 5}, {1, 2, 1, 9}};
   std::stringstream good;
   demo::write_exact_pairs(good, header, pairs);
@@ -532,8 +532,9 @@ TEST_CASE("the exact-pair cache refuses a wrong header", "[demo]") {
   REQUIRE(read[1].j == 2);
   REQUIRE(read[1].union_size == 9);
 
-  for (const auto& other : {demo::exact_pairs_header("abd", 5, 3, 42), demo::exact_pairs_header("abc", 4, 3, 42),
-                            demo::exact_pairs_header("abc", 5, 4, 42), demo::exact_pairs_header("abc", 5, 3, 43)}) {
+  for (const auto& other : {demo::exact_pairs_header("x", "abc", 5, 3, 42), demo::exact_pairs_header("w", "abd", 5, 3, 42),
+                            demo::exact_pairs_header("w", "abc", 4, 3, 42), demo::exact_pairs_header("w", "abc", 5, 4, 42),
+                            demo::exact_pairs_header("w", "abc", 5, 3, 43)}) {
     std::stringstream in;
     demo::write_exact_pairs(in, other, pairs);
     REQUIRE(!demo::read_exact_pairs(in, header, read));
@@ -655,4 +656,35 @@ TEST_CASE("compare_kept counts no loss when a merge and a split keep another ite
   REQUIRE(k.missed_duplicates == 1);
   REQUIRE(k.lost_components == 0);
   REQUIRE(k.extra_kept == 0);
+}
+
+TEST_CASE("decode_sgml_entities decodes the 4 entity forms and keeps other text", "[demo]") {
+  REQUIRE(demo::decode_sgml_entities("&lt;AMERICAN EXPRESS&gt; &amp; Co") == "<AMERICAN EXPRESS> & Co");
+  REQUIRE(demo::decode_sgml_entities("a&#5;b&#127;c") == std::string("a\x05" "b\x7f" "c"));
+  REQUIRE(demo::decode_sgml_entities("&amp;lt;") == "&lt;");  // one pass
+  REQUIRE(demo::decode_sgml_entities("&quot; &#256; &#x41; & &lt") == "&quot; &#256; &#x41; & &lt");
+}
+
+TEST_CASE("parse_reuters_sgm reads NEWID, TITLE and BODY of each element", "[demo]") {
+  const std::string sgm =
+      "<!DOCTYPE lewis SYSTEM \"lewis.dtd\">\n"
+      "<REUTERS TOPICS=\"YES\" LEWISSPLIT=\"TRAIN\" OLDID=\"5544\" NEWID=\"1\">\n"
+      "<DATE>26-FEB-1987</DATE>\n<UNKNOWN>&#5;&#5;C T</UNKNOWN>\n"
+      "<TEXT>&#2;\n<TITLE>BAHIA &lt;COCOA&gt; REVIEW</TITLE>\n"
+      "<DATELINE>SALVADOR, Feb 26 - </DATELINE><BODY>Showers &amp; sun.\n Reuter\n&#3;</BODY></TEXT>\n"
+      "</REUTERS>\n"
+      "<REUTERS TOPICS=\"NO\" OLDID=\"5545\" NEWID=\"2\">\n<TEXT TYPE=\"BRIEF\">&#2;\n"
+      "<TITLE>BRIEF ONLY</TITLE>\n&#3;</TEXT>\n</REUTERS>\n"
+      "<REUTERS NEWID=\"3\">\n<TEXT TYPE=\"UNPROC\">&#2;\nno tags\n&#3;</TEXT>\n</REUTERS>\n";
+  const auto docs = demo::parse_reuters_sgm(sgm);
+  REQUIRE(docs.size() == 3);
+  REQUIRE(docs[0].newid == "1");
+  REQUIRE(docs[0].text == "BAHIA <COCOA> REVIEW\nShowers & sun.\n Reuter\n\x03");
+  REQUIRE(docs[1].newid == "2");
+  REQUIRE(docs[1].text == "BRIEF ONLY\n");  // no BODY
+  REQUIRE(docs[2].newid == "3");
+  REQUIRE(docs[2].text == "\n");            // no TITLE, no BODY
+  REQUIRE(demo::parse_reuters_sgm("no elements").empty());
+  REQUIRE_THROWS_AS(demo::parse_reuters_sgm("<REUTERS NEWID=\"4\">\n<TITLE>x</TITLE>\n"), std::runtime_error);
+  REQUIRE_THROWS_AS(demo::parse_reuters_sgm("<REUTERS OLDID=\"4\">\n</REUTERS>\n"), std::runtime_error);
 }

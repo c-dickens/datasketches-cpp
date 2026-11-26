@@ -28,6 +28,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <iosfwd>
 #include <string>
@@ -308,9 +309,9 @@ struct exact_pair {
 /// Any change to the shingling changes it. Throws std::invalid_argument if the sizes differ.
 uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vector<std::vector<std::string>>& sets);
 
-/// The header lines of the exact-pair cache. A cache with another header is not used.
-std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts,
-                               uint64_t input_xxh64);
+/// The header lines of the exact-pair cache. The first line is "# " + what. A cache with another header is not used.
+std::string exact_pairs_header(const std::string& what, const std::string& archive_sha256, std::size_t shingle_words,
+                               std::size_t indexed_posts, uint64_t input_xxh64);
 
 /// Writes the header, a line "# pairs=N", then one line "i\tj\tintersection\tunion" for each pair.
 void write_exact_pairs(std::ostream& out, const std::string& header, const std::vector<exact_pair>& pairs);
@@ -373,6 +374,58 @@ struct kept_counts {
 
 /// Throws std::invalid_argument if the label sizes differ.
 kept_counts compare_kept(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label);
+
+/// The input and the names of one full-data check. Node u is an indexed item (at least one shingle).
+struct full_source {
+  std::string ticket;           // "MH-14b"
+  std::string stem;             // of the program, the outputs and the cache: "lsh_20news_full"
+  std::string dataset;          // in the report title: "20 Newsgroups"
+  std::string noun;             // one item: "post"
+  std::string nouns;            // "posts"
+  std::string sample_note;      // after the item count of a smoke run: "the MH-8 sample"
+  std::string shingle_source;   // where the shingle words come from: "after the header block of the post is removed"
+  std::string shingle_sets;     // in the Truth sentence: "the MH-8 shingle sets"
+  std::string archive_sha256;   // of the downloaded archive, for the cache header
+  std::size_t loaded = 0;       // the items in the load order
+  std::size_t chosen = 0;       // the items used: all, or with --smoke, the sample
+  std::vector<std::size_t> item_of;              // node u is item item_of[u] of the load order
+  std::vector<std::vector<std::string>> sets;    // the shingle set of node u
+  std::vector<std::string> names;                // the name of node u in the report
+  edge_list external;           // node pairs that must be in one true and one LSH cluster at every grid point
+  std::string external_title;   // the report heading: "Cross-posts"
+  std::string external_text;    // the paragraph under it
+  std::string external_label;   // "cross-post pairs"
+  std::string external_column;  // of the clusters TSV: "CrossPostsSplit"
+  std::string bands_extra;      // Markdown after the band figure, or empty
+};
+
+/// Makes a full_source for `data_dir`. smoke is true for --smoke.
+using full_loader = std::function<full_source(const std::filesystem::path& data_dir, bool smoke)>;
+
+/// The items of a full-data run: all `items`, or with smoke, sample_indices(items, SAMPLE_SIZE, SAMPLE_SEED).
+std::vector<std::size_t> full_chosen(std::size_t items, bool smoke);
+
+/// The main() of a full-data program: [--smoke] <data directory> <results directory>. It runs the
+/// MH-14b check on load(data directory, smoke) at every point of full_grid(), and writes <stem>.md
+/// and <stem>_{pairs,clusters,estimates}.tsv. The exact-pair cache is <stem>_exact_pairs.tsv (with
+/// --smoke: <stem>_exact_pairs_smoke.tsv) next to the data directory. Returns the exit code.
+int full_main(int argc, char** argv, const char* data_name, const full_loader& load);
+
+// Reuters-21578 (MH-14c).
+
+/// One <REUTERS> element.
+struct reuters_doc {
+  std::string newid;  // the NEWID attribute
+  std::string text;   // the decoded <TITLE> and <BODY>, joined by "\n"; a missing one is empty
+};
+
+/// Decodes &lt;, &gt;, &amp; and &#N; (decimal, N < 256) in one pass. Other text, and an entity
+/// that is not one of these, is kept as it is.
+std::string decode_sgml_entities(const std::string& text);
+
+/// Every <REUTERS> element of the text of one .sgm file, in order. Throws std::runtime_error if an
+/// element has no NEWID or no </REUTERS>.
+std::vector<reuters_doc> parse_reuters_sgm(const std::string& text);
 
 }  // namespace demo
 

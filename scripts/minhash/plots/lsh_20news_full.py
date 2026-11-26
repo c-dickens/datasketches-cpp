@@ -20,9 +20,11 @@
 # dependencies = ["marimo", "pandas", "matplotlib"]
 # ///
 
-# The figures of the full-data LSH check on 20 Newsgroups (MH-14b). results/lsh_20news_full.md shows them.
-#   uv run plots/lsh_20news_full.py [<results dir>]   writes the 9 lsh_20news_full_*.svg files
-#   uvx marimo edit plots/lsh_20news_full.py           opens the notebook
+# The figures of the full-data LSH check (MH-14b on 20 Newsgroups, MH-14c on Reuters-21578). results/<stem>.md
+# shows them. The stem is lsh_20news_full (the default) or lsh_reuters_full.
+#   uv run plots/lsh_20news_full.py [<results dir> [<stem>]]   writes the 9 <stem>_*.svg files, and for
+#                                                               lsh_reuters_full also the comparison with 20 Newsgroups
+#   uvx marimo edit plots/lsh_20news_full.py                    opens the notebook
 
 import marimo
 
@@ -42,26 +44,28 @@ def _():
     import matplotlib.pyplot as plt
     import pandas as pd
 
-    # The same bytes for the same TSV, so the committed SVG file changes only when the data does.
-    plt.rcParams["svg.hashsalt"] = "lsh_20news_full"
-
     LICENCE = Path(__file__).read_text().split("\n\n", 1)[0].replace("# ", "").replace("#", "")
 
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    results_dir = Path(args[0]) if args and not mo.running_in_notebook() else Path("results")
-    pairs = pd.read_csv(results_dir / "lsh_20news_full_pairs.tsv", sep="\t", comment="#")  # "NA" reads as NaN
-    estimates = pd.read_csv(results_dir / "lsh_20news_full_estimates.tsv", sep="\t", comment="#")
-    clusters = pd.read_csv(results_dir / "lsh_20news_full_clusters.tsv", sep="\t", comment="#")
-    merges = pd.read_csv(results_dir / "lsh_20news_full_merges.tsv", sep="\t", comment="#")
-    bands = pd.read_csv(results_dir / "lsh_20news_full_bands.tsv", sep="\t", comment="#")
-    samples = pd.read_csv(results_dir / "lsh_20news_full_sample_clusters.tsv", sep="\t", comment="#")
-    kept = pd.read_csv(results_dir / "lsh_20news_full_kept.tsv", sep="\t", comment="#")
-    threshold = float(next(line for line in (results_dir / "lsh_20news_full_merges.tsv").read_text().splitlines()
+    args = [a for a in sys.argv[1:] if not a.startswith("-")] if not mo.running_in_notebook() else []
+    results_dir = Path(args[0]) if args else Path("results")
+    STEM = args[1] if len(args) > 1 else "lsh_20news_full"
+    ITEMS = {"lsh_reuters_full": "documents"}.get(STEM, "posts")  # the word for the items in the figures
+
+    # The same bytes for the same TSV, so the committed SVG file changes only when the data does.
+    plt.rcParams["svg.hashsalt"] = STEM
+    pairs = pd.read_csv(results_dir / f"{STEM}_pairs.tsv", sep="\t", comment="#")  # "NA" reads as NaN
+    estimates = pd.read_csv(results_dir / f"{STEM}_estimates.tsv", sep="\t", comment="#")
+    clusters = pd.read_csv(results_dir / f"{STEM}_clusters.tsv", sep="\t", comment="#")
+    merges = pd.read_csv(results_dir / f"{STEM}_merges.tsv", sep="\t", comment="#")
+    bands = pd.read_csv(results_dir / f"{STEM}_bands.tsv", sep="\t", comment="#")
+    samples = pd.read_csv(results_dir / f"{STEM}_sample_clusters.tsv", sep="\t", comment="#")
+    kept = pd.read_csv(results_dir / f"{STEM}_kept.tsv", sep="\t", comment="#")
+    threshold = float(next(line for line in (results_dir / f"{STEM}_merges.tsv").read_text().splitlines()
                            if line.startswith("# threshold=")).split("=")[1])
-    test_alpha = float(next(line for line in (results_dir / "lsh_20news_full_pairs.tsv").read_text().splitlines()
+    test_alpha = float(next(line for line in (results_dir / f"{STEM}_pairs.tsv").read_text().splitlines()
                             if line.startswith("# test_alpha=")).split("=")[1])
-    return (LICENCE, bands, clusters, estimates, kept, merges, mo, pairs, plt, results_dir, samples, test_alpha,
-            threshold)
+    return (ITEMS, LICENCE, STEM, bands, clusters, estimates, kept, merges, mo, pairs, pd, plt, results_dir, samples,
+            test_alpha, threshold)
 
 
 @app.cell
@@ -116,14 +120,14 @@ def _(LICENCE, mo, pairs, plt, results_dir):
 
 
 @app.cell
-def _(pairs, pr_panels):
+def _(STEM, pairs, pr_panels):
     pr_panels(pairs, "Pairs: precision against recall of the reported pairs (candidate and Ĵ ≥ t)", "pair",
-              "lsh_20news_full_pr.svg")
+              f"{STEM}_pr.svg")
     return
 
 
 @app.cell
-def _(K_VALUES, ROWS, pairs, plt, save_svg):
+def _(K_VALUES, ROWS, STEM, pairs, plt, save_svg):
     def _heatmap():
         """Recall and precision of every grid point, as 2 tables of colour."""
         thresholds = sorted(pairs["T"].unique())
@@ -146,14 +150,14 @@ def _(K_VALUES, ROWS, pairs, plt, save_svg):
             ax.set_title(f"pair {column.lower()} (bold: ≥ 0.95)")
         fig.colorbar(image, ax=axes, shrink=0.6)
         fig.suptitle("Pairs: recall and precision at every grid point (rows: k, b × r)")
-        return save_svg(fig, "lsh_20news_full_heatmap.svg")
+        return save_svg(fig, f"{STEM}_heatmap.svg")
 
     _heatmap()
     return
 
 
 @app.cell
-def _(pairs, plt, save_svg, test_alpha):
+def _(STEM, pairs, plt, save_svg, test_alpha):
     def _theory():
         """The measured counts against the theory, and every p-value against the pass line."""
         fig, (left, right) = plt.subplots(1, 2, figsize=(13, 5.5))
@@ -179,14 +183,14 @@ def _(pairs, plt, save_svg, test_alpha):
         right.legend(fontsize=8, loc="lower right")
         fig.suptitle("Pair check: is the measured count what the joint probability predicts?")
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_theory.svg")
+        return save_svg(fig, f"{STEM}_theory.svg")
 
     _theory()
     return
 
 
 @app.cell
-def _(estimates, plt, save_svg):
+def _(STEM, estimates, plt, save_svg):
     def _estimates():
         """The error of Ĵ for each k, against the binomial theory."""
         fig, (left, right) = plt.subplots(1, 2, figsize=(11, 4.5))
@@ -207,21 +211,21 @@ def _(estimates, plt, save_svg):
         right.set_title("Ratio to the theory (1 = exact agreement)")
         fig.suptitle("Estimate error on the pairs with exact J ≥ 0.1")
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_estimates.svg")
+        return save_svg(fig, f"{STEM}_estimates.svg")
 
     _estimates()
     return
 
 
 @app.cell
-def _(clusters, pr_panels):
+def _(STEM, clusters, pr_panels):
     pr_panels(clusters, "Clusters: co-membership precision against recall of get_duplicate_clusters()", "cluster",
-              "lsh_20news_full_clusters.svg")
+              f"{STEM}_clusters.svg")
     return
 
 
 @app.cell
-def _(merges, plt, save_svg, threshold):
+def _(ITEMS, STEM, merges, plt, save_svg, threshold):
     import math
 
     def _merges():
@@ -263,7 +267,7 @@ def _(merges, plt, save_svg, threshold):
                                edgecolor="black", linewidth=0.5, zorder=2)
                 false_links = int((edges["ExactJ"].astype(float) < threshold).sum())
                 parts = nodes["TrueCluster"].nunique()
-                ax.set_title(f"merge {m}: {len(names)} posts, {parts} true clusters\n"
+                ax.set_title(f"merge {m}: {len(names)} {ITEMS}, {parts} true clusters\n"
                              f"{len(edges)} reported pairs, {false_links} false" if row == 0 else
                              f"{len(edges)} reported pairs, {false_links} false", fontsize=8)
                 ax.set_xlim(-1.3, 1.3)
@@ -274,17 +278,17 @@ def _(merges, plt, save_svg, threshold):
                 if col == 0:
                     k, b, r = (part[1:] for part in setting.split("_"))
                     ax.set_ylabel(f"k = {k}, {b} × {r}", fontsize=9)
-        fig.suptitle(f"The worst merges at t = {threshold:.1f}: dots are posts (colour = true cluster), lines are "
+        fig.suptitle(f"The worst merges at t = {threshold:.1f}: dots are {ITEMS} (colour = true cluster), lines are "
                      "reported pairs (red = false link, J < t; thick red = weakest link)", fontsize=10)
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_merges.svg")
+        return save_svg(fig, f"{STEM}_merges.svg")
 
     _merges()
     return
 
 
 @app.cell
-def _(bands, plt, save_svg):
+def _(STEM, bands, plt, save_svg):
     REF = {"K": 128, "R": 4, "T": 0.5}  # the MH-14 setting
 
     def _bands():
@@ -312,14 +316,14 @@ def _(bands, plt, save_svg):
         fig.suptitle(f"Pairs with J > 0 at k = {REF['K']}, {b} × {REF['R']}, t = {REF['T']}: left of the dotted line "
                      "the rate is the false-verify rate, right of it the recall")
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_bands.svg")
+        return save_svg(fig, f"{STEM}_bands.svg")
 
     _bands()
     return
 
 
 @app.cell
-def _(plt, samples, save_svg, threshold):
+def _(ITEMS, STEM, plt, samples, save_svg, threshold):
     import math as _math
 
     def _samples():
@@ -359,24 +363,24 @@ def _(plt, samples, save_svg, threshold):
             false_links = int(((edges["Kind"] == "verified") & (edges["ExactJ"].astype(float) < threshold)).sum())
             missed = int((edges["Kind"] == "missed").sum())
             parts = len(true_clusters) + int((nodes["TrueCluster"] == "-").sum())
-            ax.set_title(f"cluster {s}: {len(names)} posts, {parts} true part{'s' if parts > 1 else ''}\n"
+            ax.set_title(f"cluster {s}: {len(names)} {ITEMS}, {parts} true part{'s' if parts > 1 else ''}\n"
                          f"{verified} verified ({false_links} false), {missed} missed", fontsize=8)
             ax.set_xlim(-1.3, 1.3)
             ax.set_ylim(-1.3, 1.3)
             ax.set_aspect("equal")
             ax.axis("off")
         fig.suptitle(f"A random sample of LSH clusters at k = 128, 32 × 4, t = {threshold:.1f}\n"
-                     "dots: posts (colour = true cluster, grey = none); grey line: verified true pair; red: verified "
+                     f"dots: {ITEMS} (colour = true cluster, grey = none); grey line: verified true pair; red: verified "
                      "false pair (J < t); blue dashed: true pair that LSH did not verify", fontsize=9)
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_sample_clusters.svg")
+        return save_svg(fig, f"{STEM}_sample_clusters.svg")
 
     _samples()
     return
 
 
 @app.cell
-def _(kept, plt, save_svg):
+def _(STEM, kept, plt, save_svg):
     def _kept():
         """Deduplication by LSH against the exact clusters: data-loss rate against missed-duplicate rate."""
         k_values = sorted(kept["K"].unique())
@@ -397,9 +401,37 @@ def _(kept, plt, save_svg):
         axes[0].legend(fontsize=7)
         fig.suptitle("Deduplication with the LSH clusters against the exact clusters (lower left is good)")
         fig.tight_layout()
-        return save_svg(fig, "lsh_20news_full_kept.svg")
+        return save_svg(fig, f"{STEM}_kept.svg")
 
     _kept()
+    return
+
+
+@app.cell
+def _(STEM, bands, pd, plt, results_dir, save_svg):
+    def _compare():
+        """The verified rate of each J band on 20 Newsgroups and on Reuters-21578, at the MH-14 setting."""
+        other = results_dir / "lsh_20news_full_bands.tsv"
+        if STEM != "lsh_reuters_full" or not other.exists():
+            return None
+        fig, ax = plt.subplots(figsize=(8, 5))
+        for table, label, colour in [(pd.read_csv(other, sep="\t", comment="#"), "20 Newsgroups", "#1f77b4"),
+                                     (bands, "Reuters-21578", "#d62728")]:
+            d = table[(table["K"] == 128) & (table["R"] == 4) & (table["T"] == 0.5) & (table["Pairs"] > 0)]
+            middle = (d["BandLo"] + d["BandHi"]) / 2
+            ax.plot(middle, d["ExpectedRate"], "-", color=colour, alpha=0.6, label=f"{label}: expected")
+            ax.plot(middle, d["VerifiedRate"], "o", color=colour, label=f"{label}: measured")
+        ax.axvline(0.5, color="#555555", linestyle=":", linewidth=1)
+        ax.set_xticks([x / 10 for x in range(11)])
+        ax.set_ylim(-0.02, 1.02)
+        ax.set_xlabel("J band (midpoint)")
+        ax.set_ylabel("verified rate")
+        ax.legend(fontsize=8, loc="upper left")
+        fig.suptitle("Verified rate for each J band on both datasets, at k = 128, 32 × 4, t = 0.5")
+        fig.tight_layout()
+        return save_svg(fig, f"{STEM}_bands_compare.svg")
+
+    _compare()
     return
 
 

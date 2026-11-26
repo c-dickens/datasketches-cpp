@@ -1,0 +1,29 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# ticket=MH-14c
+# smoke=0
+# indexed_posts=20840
+# pairs_j_gt_0=822287
+# family_alpha=1e-06
+# test_alpha=3.57e-09
+# min_j=0.1
+K	Pairs	MeanError	Rmse	RmsTheorySd	Ratio
+64	8506	0.001189	0.046348	0.046244	1.0023
+128	8506	-0.000426	0.032752	0.032699	1.0016
+256	8506	0.004077	0.023983	0.023122	1.0373
+512	8506	0.001196	0.016236	0.016350	0.9931
+1024	8506	0.001064	0.011598	0.011561	1.0032
