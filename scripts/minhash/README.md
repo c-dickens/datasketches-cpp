@@ -20,7 +20,7 @@ of build jobs (default 4).
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+ctest --test-dir build --no-tests=error --output-on-failure
 ```
 
 The unit tests use small text fixtures. They do not download anything.

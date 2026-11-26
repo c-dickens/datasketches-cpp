@@ -21,7 +21,7 @@
 #
 #   cmake -S scripts/minhash -B scripts/minhash/build -DCMAKE_BUILD_TYPE=Release
 #   cmake --build scripts/minhash/build -j
-#   ctest --test-dir scripts/minhash/build --output-on-failure
+#   ctest --test-dir scripts/minhash/build --no-tests=error --output-on-failure
 
 cmake_minimum_required(VERSION 3.16.0)
 project(minhash_demos LANGUAGES CXX)
