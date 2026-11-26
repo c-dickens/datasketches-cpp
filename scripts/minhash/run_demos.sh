@@ -30,7 +30,7 @@ jobs="${JOBS:-4}"
 
 data/get_20news.sh
 
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF > /dev/null
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON > /dev/null
 cmake --build build -j "$jobs" > /dev/null
 
 echo "== 20 Newsgroups: data check =="
