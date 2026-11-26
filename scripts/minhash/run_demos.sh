@@ -19,6 +19,8 @@
 #
 # The one command that runs every MinHash demo: it gets the data, builds the
 # demos, and runs them. Later tickets add their demos here.
+# FULL=1 also runs the full-data LSH check (MH-14b), which takes about 15 minutes
+# without its exact-pair cache.
 
 set -euo pipefail
 
@@ -40,3 +42,20 @@ build/minhash_20news data/20_newsgroups results/minhash_20news.md
 
 echo "== 20 Newsgroups: LSH correctness =="
 build/lsh_20news data/20_newsgroups results/lsh_20news.md
+
+if [ "${FULL:-0}" = 1 ]; then
+  echo "== 20 Newsgroups: full-data LSH check =="
+  cache=data/lsh_20news_full_exact_pairs.tsv
+  packed=results/lsh_20news_full_exact_pairs.tsv.gz
+  # Unpack the committed cache when data/ has none, or one that differs from it (an older revision, or a
+  # damaged file). The program runs the exact pass only if the header does not match its input.
+  if [ -f "$packed" ] && ! cmp -s <(gunzip -c "$packed") "$cache" 2>/dev/null; then
+    gunzip -c "$packed" > "$cache.part" && mv "$cache.part" "$cache"
+  fi
+  build/lsh_20news_full data/20_newsgroups results
+  # Repack only when the pairs changed: gzip implementations give other bytes for the same input.
+  if [ ! -f "$packed" ] || ! cmp -s <(gunzip -c "$packed") "$cache"; then
+    gzip -9nc "$cache" > "$packed"
+  fi
+  uv run plots/lsh_20news_full.py results
+fi

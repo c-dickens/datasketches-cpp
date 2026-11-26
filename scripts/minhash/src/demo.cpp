@@ -22,9 +22,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <istream>
 #include <map>
+#include <ostream>
 #include <sstream>
 #include <stdexcept>
+#include <tuple>
 
 #include "xxhash64.h"
 
@@ -219,29 +222,34 @@ bool is_candidate(const std::vector<uint64_t>& keys_a, const std::vector<uint64_
 }
 
 double poisson_binomial_p_value(const std::vector<double>& probs, std::size_t observed) {
-  // dist[x] = P(X = x) after each Bernoulli: O(n^2), which is small for SCURVE_PAIRS_PER_BIN pairs
-  std::vector<double> dist(probs.size() + 1, 0.0);
+  if (observed > probs.size()) {
+    return 0.0;
+  }
+  // The two-sided p-value of the count of misses (Bernoulli(1 - p_i)) at n - observed is the same,
+  // so the program counts the smaller side.
+  const bool flip = 2 * observed > probs.size();
+  const std::size_t o = flip ? probs.size() - observed : observed;
+  // dist[x] = P(X = x) for x <= o, and dist[o + 1] = P(X > o): O(n o) instead of O(n^2)
+  std::vector<double> dist(o + 2, 0.0);
   dist[0] = 1.0;
-  for (std::size_t i = 0; i < probs.size(); ++i) {
-    const double p = probs[i];
-    for (std::size_t x = i + 1; x > 0; --x) {
+  std::size_t seen = 0;
+  for (const double prob : probs) {
+    const double p = flip ? 1.0 - prob : prob;
+    if (p == 0.0) {
+      continue;  // a Bernoulli(0) does not change the distribution
+    }
+    ++seen;
+    dist[o + 1] += dist[o] * p;
+    for (std::size_t x = std::min(seen, o); x > 0; --x) {
       dist[x] = dist[x] * (1.0 - p) + dist[x - 1] * p;
     }
     dist[0] *= 1.0 - p;
   }
-  if (observed > probs.size()) {
-    return 0.0;
+  double lower = 0.0;  // P(X <= o)
+  for (std::size_t x = 0; x <= o; ++x) {
+    lower += dist[x];
   }
-  double lower = 0.0;  // P(X <= observed)
-  double upper = 0.0;  // P(X >= observed)
-  for (std::size_t x = 0; x < dist.size(); ++x) {
-    if (x <= observed) {
-      lower += dist[x];
-    }
-    if (x >= observed) {
-      upper += dist[x];
-    }
-  }
+  const double upper = dist[o] + dist[o + 1];  // P(X >= o)
   return std::min(1.0, 2.0 * std::min(lower, upper));
 }
 
@@ -357,6 +365,472 @@ std::vector<bucket> largest_buckets(const std::vector<std::vector<uint64_t>>& ke
                    [](const bucket& a, const bucket& b) { return a.items.size() > b.items.size(); });
   all.resize(std::min(count, all.size()));
   return all;
+}
+
+std::vector<grid_point> full_grid() {
+  std::vector<grid_point> grid;
+  for (const uint16_t k : FULL_K_VALUES) {
+    for (const unsigned rows : FULL_ROWS) {
+      for (const double t : FULL_THRESHOLDS) {
+        grid.push_back(grid_point{k, rows, k / rows, t});
+      }
+    }
+  }
+  return grid;
+}
+
+std::size_t min_matches(double t, uint16_t k) {
+  if (!(t > 0.0) || t > 1.0) {
+    throw std::invalid_argument("threshold must be in (0, 1]");
+  }
+  if (k == 0) {
+    throw std::invalid_argument("k must be at least 1");
+  }
+  std::size_t m = 0;
+  while (static_cast<double>(m) / static_cast<double>(k) < t) {
+    ++m;
+  }
+  return m;
+}
+
+std::vector<double> binomial_pmf(double j, std::size_t k) {
+  std::vector<double> pmf(k + 1, 0.0);
+  if (j <= 0.0) {
+    pmf[0] = 1.0;
+    return pmf;
+  }
+  if (j >= 1.0) {
+    pmf[k] = 1.0;
+    return pmf;
+  }
+  const double log_j = std::log(j);
+  const double log_miss = std::log1p(-j);
+  double log_choose = 0.0;  // log C(k, s), updated from s to s + 1
+  for (std::size_t s = 0; s <= k; ++s) {
+    pmf[s] = std::exp(log_choose + static_cast<double>(s) * log_j + static_cast<double>(k - s) * log_miss);
+    log_choose += std::log(static_cast<double>(k - s)) - std::log(static_cast<double>(s + 1));
+  }
+  return pmf;
+}
+
+std::vector<double> full_band_given_matches(unsigned rows, unsigned bands) {
+  if (rows == 0 || bands == 0) {
+    throw std::invalid_argument("rows and bands must be at least 1");
+  }
+  const std::size_t k = static_cast<std::size_t>(rows) * bands;
+  std::vector<double> log_fact(k + 1, 0.0);
+  for (std::size_t n = 1; n <= k; ++n) {
+    log_fact[n] = log_fact[n - 1] + std::log(static_cast<double>(n));
+  }
+  const auto log_choose = [&log_fact](std::size_t n, std::size_t x) {
+    return log_fact[n] - log_fact[x] - log_fact[n - x];
+  };
+  // none[s] = P(no band so far is all-equal | s equal slots in those bands)
+  std::vector<double> none(k + 1, 0.0);
+  none[0] = 1.0;
+  for (std::size_t band = 0; band < bands; ++band) {
+    const std::size_t before = band * rows;  // slots of the bands so far
+    const std::size_t after = before + rows;
+    std::vector<double> next(k + 1, 0.0);
+    for (std::size_t s = 0; s <= after; ++s) {
+      // e equal slots in this band (e < rows, so it is not all-equal): hypergeometric given s
+      for (std::size_t e = 0; e < rows && e <= s; ++e) {
+        if (s - e > before || none[s - e] == 0.0) {
+          continue;
+        }
+        const double h = std::exp(log_choose(rows, e) + log_choose(before, s - e) - log_choose(after, s));
+        next[s] += h * none[s - e];
+      }
+    }
+    none.swap(next);
+  }
+  std::vector<double> q(k + 1, 0.0);
+  for (std::size_t s = 0; s <= k; ++s) {
+    q[s] = std::max(0.0, 1.0 - none[s]);  // rounding can leave none[s] just above 1
+  }
+  return q;
+}
+
+std::vector<double> reported_tail(const std::vector<double>& pmf, const std::vector<double>& q) {
+  if (pmf.size() != q.size()) {
+    throw std::invalid_argument("pmf and q differ in size");
+  }
+  std::vector<double> tail(pmf.size() + 1, 0.0);
+  for (std::size_t s = pmf.size(); s > 0; --s) {
+    tail[s - 1] = tail[s] + pmf[s - 1] * q[s - 1];
+  }
+  return tail;
+}
+
+double reported_probability(double j, unsigned rows, unsigned bands, std::size_t min_matches) {
+  const std::size_t k = static_cast<std::size_t>(rows) * bands;
+  if (min_matches > k + 1) {
+    throw std::invalid_argument("min_matches must be at most k + 1");
+  }
+  return reported_tail(binomial_pmf(j, k), full_band_given_matches(rows, bands))[min_matches];
+}
+
+pair_check check_pair_tests(const std::vector<double>& exact, const std::vector<double>& prob,
+                            const std::vector<bool>& reported, std::size_t reported_disjoint, double t,
+                            double test_alpha) {
+  if (exact.size() != prob.size() || exact.size() != reported.size()) {
+    throw std::invalid_argument("exact, prob and reported differ in size");
+  }
+  pair_check out{};
+  std::vector<double> true_probs;
+  std::vector<double> false_probs;
+  for (std::size_t i = 0; i < exact.size(); ++i) {
+    if (exact[i] >= t) {
+      true_probs.push_back(prob[i]);
+      out.expected_true += prob[i];
+    } else if (exact[i] > 0.0) {
+      false_probs.push_back(prob[i]);
+      out.expected_false += prob[i];
+    }
+    out.counts.add(exact[i] >= t, reported[i]);
+  }
+  for (std::size_t d = 0; d < reported_disjoint; ++d) {
+    out.counts.add(false, true);
+  }
+  out.false_pairs = false_probs.size();
+  out.p_recall = poisson_binomial_p_value(true_probs, out.counts.both);
+  out.p_precision = poisson_binomial_p_value(false_probs, out.counts.verified - out.counts.both);
+  out.pass = out.p_recall >= test_alpha && out.p_precision >= test_alpha;
+  return out;
+}
+
+std::vector<std::size_t> components(std::size_t n, const edge_list& edges) {
+  std::vector<std::size_t> parent(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    parent[i] = i;
+  }
+  const auto find = [&parent](std::size_t x) {
+    while (parent[x] != x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+  for (const auto& e : edges) {
+    if (e.first >= n || e.second >= n) {
+      throw std::invalid_argument("edge node out of range");
+    }
+    const std::size_t a = find(e.first);
+    const std::size_t b = find(e.second);
+    parent[std::max(a, b)] = std::min(a, b);  // the root is the smallest node
+  }
+  std::vector<std::size_t> label(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    label[i] = find(i);
+  }
+  return label;
+}
+
+std::vector<std::vector<std::size_t>> clusters_of(const std::vector<std::size_t>& label) {
+  std::vector<std::vector<std::size_t>> by_label(label.size());
+  for (std::size_t i = 0; i < label.size(); ++i) {
+    by_label[label[i]].push_back(i);  // ascending, because i ascends
+  }
+  std::vector<std::vector<std::size_t>> result;
+  for (auto& members : by_label) {
+    if (members.size() >= 2) {
+      result.push_back(std::move(members));
+    }
+  }
+  return result;
+}
+
+namespace {
+
+std::size_t pairs_in(std::size_t n) {
+  return n * (n - (n == 0 ? 0 : 1)) / 2;
+}
+
+// For each label of `outer` with 2 or more nodes: the number of distinct `inner` labels among its nodes.
+std::vector<std::pair<std::size_t, std::size_t>> parts_of(const std::vector<std::size_t>& outer,
+                                                          const std::vector<std::size_t>& inner) {
+  std::vector<std::pair<std::size_t, std::size_t>> cells;
+  cells.reserve(outer.size());
+  for (std::size_t i = 0; i < outer.size(); ++i) {
+    cells.emplace_back(outer[i], inner[i]);
+  }
+  std::sort(cells.begin(), cells.end());
+  std::vector<std::pair<std::size_t, std::size_t>> result;  // (outer label, distinct inner labels)
+  std::size_t nodes = 0;
+  for (std::size_t c = 0; c < cells.size(); ++c) {
+    const bool first_of_outer = c == 0 || cells[c].first != cells[c - 1].first;
+    if (first_of_outer) {
+      result.emplace_back(cells[c].first, 0);
+      nodes = 0;
+    }
+    ++nodes;
+    if (first_of_outer || cells[c].second != cells[c - 1].second) {
+      ++result.back().second;
+    }
+    const bool last_of_outer = c + 1 == cells.size() || cells[c + 1].first != cells[c].first;
+    if (last_of_outer && nodes < 2) {
+      result.pop_back();
+    }
+  }
+  return result;
+}
+
+}  // namespace
+
+cluster_metrics compare_clusters(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label) {
+  if (lsh_label.size() != true_label.size()) {
+    throw std::invalid_argument("label lists differ in size");
+  }
+  const std::size_t n = lsh_label.size();
+  cluster_metrics out{};
+  std::vector<std::size_t> lsh_size(n, 0);
+  std::vector<std::size_t> true_size(n, 0);
+  std::vector<std::pair<std::size_t, std::size_t>> cells;
+  cells.reserve(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    ++lsh_size[lsh_label[i]];
+    ++true_size[true_label[i]];
+    cells.emplace_back(lsh_label[i], true_label[i]);
+  }
+  for (std::size_t i = 0; i < n; ++i) {
+    out.lsh_clusters += lsh_size[i] >= 2 ? 1 : 0;
+    out.true_clusters += true_size[i] >= 2 ? 1 : 0;
+    out.lsh_pairs += pairs_in(lsh_size[i]);
+    out.true_pairs += pairs_in(true_size[i]);
+    out.largest_lsh = std::max(out.largest_lsh, lsh_size[i]);
+    out.largest_true = std::max(out.largest_true, true_size[i]);
+  }
+  std::sort(cells.begin(), cells.end());
+  for (std::size_t c = 0; c < cells.size();) {
+    std::size_t end = c;
+    while (end < cells.size() && cells[end] == cells[c]) {
+      ++end;
+    }
+    out.both_pairs += pairs_in(end - c);
+    c = end;
+  }
+  for (const auto& p : parts_of(lsh_label, true_label)) {
+    out.merges += p.second >= 2 ? 1 : 0;
+  }
+  for (const auto& p : parts_of(true_label, lsh_label)) {
+    out.splits += p.second >= 2 ? 1 : 0;
+  }
+  return out;
+}
+
+std::vector<merge_example> worst_merges(const std::vector<std::size_t>& lsh_label,
+                                        const std::vector<std::size_t>& true_label, const edge_list& edges,
+                                        const std::vector<double>& edge_j, std::size_t count) {
+  if (edges.size() != edge_j.size()) {
+    throw std::invalid_argument("edges and edge_j differ in size");
+  }
+  std::vector<std::size_t> nodes(lsh_label.size(), 0);
+  for (const std::size_t label : lsh_label) {
+    ++nodes[label];
+  }
+  std::vector<merge_example> merges;
+  std::vector<std::size_t> slot(lsh_label.size(), lsh_label.size());  // lsh root -> position in merges
+  for (const auto& p : parts_of(lsh_label, true_label)) {
+    if (p.second >= 2) {
+      slot[p.first] = merges.size();
+      merges.push_back(merge_example{p.first, nodes[p.first], p.second, {0, 0}, 2.0});
+    }
+  }
+  for (std::size_t e = 0; e < edges.size(); ++e) {
+    const std::size_t s = slot[lsh_label[edges[e].first]];
+    if (s == lsh_label.size()) {
+      continue;
+    }
+    auto& m = merges[s];
+    // the lowest J, ties by the smaller edge, so the result does not depend on the edge order
+    if (edge_j[e] < m.weakest_j || (edge_j[e] == m.weakest_j && edges[e] < m.weakest)) {
+      m.weakest_j = edge_j[e];
+      m.weakest = edges[e];
+    }
+  }
+  std::sort(merges.begin(), merges.end(), [](const merge_example& a, const merge_example& b) {
+    if (a.true_parts != b.true_parts) {
+      return a.true_parts > b.true_parts;
+    }
+    if (a.nodes != b.nodes) {
+      return a.nodes > b.nodes;
+    }
+    return a.lsh_root < b.lsh_root;
+  });
+  merges.resize(std::min(count, merges.size()));
+  return merges;
+}
+
+uint64_t input_fingerprint(const std::vector<std::size_t>& ids, const std::vector<std::vector<std::string>>& sets) {
+  if (ids.size() != sets.size()) {
+    throw std::invalid_argument("ids and sets differ in size");
+  }
+  XXHash64 hasher(0);
+  std::string text;  // one add() per set: GCC's -Warray-bounds misreads add() of a short literal
+  for (std::size_t s = 0; s < sets.size(); ++s) {
+    text = std::to_string(ids[s]) + "\n";
+    for (const auto& item : sets[s]) {
+      text += item + "\n";
+    }
+    text += "\n";
+    hasher.add(text.data(), text.size());
+  }
+  return hasher.hash();
+}
+
+std::string exact_pairs_header(const std::string& archive_sha256, std::size_t shingle_words, std::size_t indexed_posts,
+                               uint64_t input_xxh64) {
+  std::array<char, 17> hex{};
+  std::snprintf(hex.data(), hex.size(), "%016llx", static_cast<unsigned long long>(input_xxh64));  // NOLINT(google-runtime-int): the type of %llx
+  return "# lsh_20news_full exact pairs (MH-14b): i, j, |A n B|, |A u B| of each pair of indexed posts with J > 0\n"
+         "# archive_sha256=" + archive_sha256 + "\n" +
+         "# shingle_words=" + std::to_string(shingle_words) + "\n" +
+         "# indexed_posts=" + std::to_string(indexed_posts) + "\n" +
+         "# input_xxh64=" + hex.data() + "\n";
+}
+
+void write_exact_pairs(std::ostream& out, const std::string& header, const std::vector<exact_pair>& pairs) {
+  out << header << "# pairs=" << pairs.size() << '\n';
+  for (const auto& p : pairs) {
+    out << p.i << '\t' << p.j << '\t' << p.intersection << '\t' << p.union_size << '\n';
+  }
+}
+
+std::array<band_rate, NUM_BINS> band_rates(const std::vector<double>& exact, const std::vector<double>& prob,
+                                           const std::vector<bool>& verified) {
+  if (exact.size() != prob.size() || exact.size() != verified.size()) {
+    throw std::invalid_argument("exact, prob and verified differ in size");
+  }
+  std::array<band_rate, NUM_BINS> bands{};
+  for (std::size_t i = 0; i < exact.size(); ++i) {
+    if (exact[i] > 0.0) {
+      auto& b = bands[jaccard_bin(exact[i])];
+      ++b.pairs;
+      b.verified += verified[i] ? 1 : 0;
+      b.expected += prob[i];
+    }
+  }
+  return bands;
+}
+
+std::vector<std::size_t> smallest_hashes(const std::vector<std::size_t>& keys, std::size_t count, uint64_t seed) {
+  std::vector<std::tuple<uint64_t, std::size_t, std::size_t>> keyed;  // (hash, key, position)
+  keyed.reserve(keys.size());
+  for (std::size_t p = 0; p < keys.size(); ++p) {
+    const auto value = static_cast<uint64_t>(keys[p]);
+    keyed.emplace_back(XXHash64::hash(&value, sizeof(value), seed), keys[p], p);
+  }
+  std::sort(keyed.begin(), keyed.end());
+  keyed.resize(std::min(count, keyed.size()));
+  std::vector<std::size_t> positions;
+  positions.reserve(keyed.size());
+  for (const auto& k : keyed) {
+    positions.push_back(std::get<2>(k));
+  }
+  return positions;
+}
+
+bool in_index_set(std::size_t key, uint64_t seed) {
+  const auto value = static_cast<uint64_t>(key);
+  return XXHash64::hash(&value, sizeof(value), seed) % 2 == 0;
+}
+
+bucket_table::bucket_table(const std::vector<std::vector<uint64_t>>& keys_per_item,
+                           const std::vector<std::size_t>& ids) {
+  if (keys_per_item.size() != ids.size()) {
+    throw std::invalid_argument("keys_per_item and ids differ in size");
+  }
+  for (std::size_t i = 0; i < ids.size(); ++i) {
+    const auto& keys = keys_per_item[i];
+    if (bands_.size() < keys.size()) {
+      bands_.resize(keys.size());
+    }
+    for (std::size_t band = 0; band < keys.size(); ++band) {
+      bands_[band][keys[band]].push_back(ids[i]);
+    }
+  }
+}
+
+std::vector<std::size_t> bucket_table::candidates(const std::vector<uint64_t>& query_keys) const {
+  std::vector<std::size_t> result;
+  for (std::size_t band = 0; band < query_keys.size() && band < bands_.size(); ++band) {
+    const auto it = bands_[band].find(query_keys[band]);
+    if (it != bands_[band].end()) {
+      result.insert(result.end(), it->second.begin(), it->second.end());
+    }
+  }
+  std::sort(result.begin(), result.end());
+  result.erase(std::unique(result.begin(), result.end()), result.end());
+  return result;
+}
+
+kept_counts compare_kept(const std::vector<std::size_t>& lsh_label, const std::vector<std::size_t>& true_label) {
+  if (lsh_label.size() != true_label.size()) {
+    throw std::invalid_argument("label lists differ in size");
+  }
+  kept_counts out{};
+  out.items = lsh_label.size();
+  for (std::size_t i = 0; i < lsh_label.size(); ++i) {
+    const bool exact = true_label[i] == i;
+    const bool lsh = lsh_label[i] == i;
+    out.kept_exact += exact ? 1 : 0;
+    out.kept_lsh += lsh ? 1 : 0;
+    out.kept_both += exact && lsh ? 1 : 0;
+    out.wrongly_removed += exact && !lsh ? 1 : 0;
+    out.missed_duplicates += lsh && !exact ? 1 : 0;
+  }
+  std::vector<std::size_t> lsh_kept_in(true_label.size(), 0);  // LSH-kept items of each true component
+  for (std::size_t i = 0; i < lsh_label.size(); ++i) {
+    lsh_kept_in[true_label[i]] += lsh_label[i] == i ? 1 : 0;
+  }
+  for (std::size_t c = 0; c < true_label.size(); ++c) {
+    if (true_label[c] != c) {
+      continue;  // c is not the label of a true component
+    }
+    out.lost_components += lsh_kept_in[c] == 0 ? 1 : 0;
+    out.extra_kept += lsh_kept_in[c] > 1 ? lsh_kept_in[c] - 1 : 0;
+  }
+  return out;
+}
+
+bool read_exact_pairs(std::istream& in, const std::string& header, std::vector<exact_pair>& pairs) {
+  pairs.clear();
+  const auto header_lines = static_cast<std::size_t>(std::count(header.begin(), header.end(), '\n'));
+  std::string seen;
+  std::string line;
+  for (std::size_t l = 0; l < header_lines && std::getline(in, line); ++l) {
+    seen += line + "\n";
+  }
+  if (seen != header) {
+    return false;
+  }
+  std::size_t expected = 0;
+  {
+    const std::string prefix = "# pairs=";
+    if (!std::getline(in, line) || line.compare(0, prefix.size(), prefix) != 0) {
+      throw std::runtime_error("the exact-pair cache has no \"# pairs=N\" line");
+    }
+    std::istringstream count(line.substr(prefix.size()));
+    std::string rest;
+    if (!(count >> expected) || (count >> rest)) {
+      throw std::runtime_error("malformed pair count: " + line);
+    }
+  }
+  while (std::getline(in, line)) {
+    std::istringstream fields(line);
+    exact_pair p{};
+    std::string rest;
+    if (!(fields >> p.i >> p.j >> p.intersection >> p.union_size) || (fields >> rest) || p.i >= p.j ||
+        p.intersection == 0 || p.intersection > p.union_size) {
+      throw std::runtime_error("malformed exact-pair line: " + line);
+    }
+    pairs.push_back(p);
+  }
+  if (pairs.size() != expected) {
+    throw std::runtime_error("the exact-pair cache has " + std::to_string(pairs.size()) + " pairs, but its header says " +
+                             std::to_string(expected));
+  }
+  return true;
 }
 
 }  // namespace demo
