@@ -35,7 +35,7 @@ esac
 
 jobs="${JOBS:-4}"
 
-# Not build/: run_demos.sh configures that one with BUILD_TESTING=OFF.
+# Not build/: keep the characterisation build separate from the demo and test build.
 cmake -S . -B build-characterise -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF > /dev/null
 cmake --build build-characterise -j "$jobs" --target minhash_characterise > /dev/null
 
