@@ -74,17 +74,40 @@ using minhash_sketch = minhash_sketch_alloc<std::allocator<uint64_t>>;
 template<typename Allocator = std::allocator<uint64_t>>
 class minhash_sketch_alloc {
 public:
+  /// allocator type
   using allocator_type = Allocator;
+  /// signature type: k slot values
   using vector_u64 = std::vector<uint64_t, Allocator>;
 
   class builder;
 
-  minhash_sketch_alloc(const minhash_sketch_alloc&) = default;
-  minhash_sketch_alloc(minhash_sketch_alloc&&) noexcept = default;
-  minhash_sketch_alloc& operator=(const minhash_sketch_alloc&) = default;
+  /**
+   * Copy constructor
+   * @param other sketch to be copied
+   */
+  minhash_sketch_alloc(const minhash_sketch_alloc& other) = default;
+
+  /**
+   * Move constructor
+   * @param other sketch to be moved
+   */
+  minhash_sketch_alloc(minhash_sketch_alloc&& other) noexcept = default;
+
+  /**
+   * Copy assignment
+   * @param other sketch to be copied
+   * @return reference to this sketch
+   */
+  minhash_sketch_alloc& operator=(const minhash_sketch_alloc& other) = default;
+
+  /**
+   * Move assignment
+   * @param other sketch to be moved
+   * @return reference to this sketch
+   */
   // not noexcept, as in theta: with an allocator that does not propagate and
   // compares unequal, the vector copies its elements and can throw
-  minhash_sketch_alloc& operator=(minhash_sketch_alloc&&) = default;
+  minhash_sketch_alloc& operator=(minhash_sketch_alloc&& other) = default;
 
   /// @return true if this sketch has never been updated
   bool is_empty() const;

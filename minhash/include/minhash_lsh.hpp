@@ -49,10 +49,15 @@ using minhash_lsh_index = minhash_lsh_index_alloc<std::allocator<uint64_t>>;
 template<typename Allocator = std::allocator<uint64_t>>
 class minhash_lsh_index_alloc {
 public:
+  /// allocator type
   using allocator_type = Allocator;
+  /// type of the sketches that the index accepts
   using sketch_type = minhash_sketch_alloc<Allocator>;
+  /// vector of band keys or document ids
   using vector_u64 = std::vector<uint64_t, Allocator>;
+  /// allocator for type T, rebound from Allocator
   template<typename T> using rebind_alloc = typename std::allocator_traits<Allocator>::template rebind_alloc<T>;
+  /// list of duplicate clusters, each a sorted vector of ids
   using vector_of_clusters = std::vector<vector_u64, rebind_alloc<vector_u64>>;
 
   /**
