@@ -209,6 +209,172 @@ uint32_t minhash_sketch_alloc<A>::count_matches(const minhash_sketch_alloc& othe
   return matches;
 }
 
+// serialization (minhash/SPEC.md, "Serialized format, version 1")
+
+template<typename A> const size_t minhash_sketch_alloc<A>::PREAMBLE_BYTES;
+template<typename A> const uint8_t minhash_sketch_alloc<A>::FLAG_EMPTY;
+template<typename A> const uint8_t minhash_sketch_alloc<A>::FLAG_HASH_LIST;
+template<typename A> const uint8_t minhash_sketch_alloc<A>::FLAGS_UNASSIGNED;
+
+template<typename A>
+size_t minhash_sketch_alloc<A>::get_serialized_size_bytes() const {
+  if (is_empty_) { return PREAMBLE_BYTES; }
+  return PREAMBLE_BYTES + sizeof(uint64_t) * signature_.size();
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::serialize(std::ostream& os) const {
+  uint8_t buffer[PREAMBLE_BYTES];
+  write_preamble(buffer);
+  os.write(reinterpret_cast<const char*>(buffer), PREAMBLE_BYTES);
+  if (is_empty_) { return; }
+  for (const uint64_t slot: signature_) {
+    store_u64(buffer, slot);
+    os.write(reinterpret_cast<const char*>(buffer), sizeof(uint64_t));
+  }
+}
+
+template<typename A>
+auto minhash_sketch_alloc<A>::serialize(unsigned header_size_bytes) const -> vector_bytes {
+  const size_t size = header_size_bytes + get_serialized_size_bytes();
+  vector_bytes bytes(size, 0, AllocBytes(signature_.get_allocator()));
+  uint8_t* ptr = bytes.data() + header_size_bytes;
+  write_preamble(ptr);
+  if (!is_empty_) {
+    ptr += PREAMBLE_BYTES;
+    for (const uint64_t slot: signature_) {
+      store_u64(ptr, slot);
+      ptr += sizeof(uint64_t);
+    }
+  }
+  return bytes;
+}
+
+template<typename A>
+minhash_sketch_alloc<A> minhash_sketch_alloc<A>::deserialize(std::istream& is, uint64_t seed, const A& allocator) {
+  uint8_t buffer[PREAMBLE_BYTES];
+  is.read(reinterpret_cast<char*>(buffer), PREAMBLE_BYTES);
+  if (!is.good()) { throw std::runtime_error("error reading from std::istream"); }
+  const preamble pre = check_preamble(buffer, seed);
+  minhash_sketch_alloc sketch(pre.k, seed, allocator);
+  if (pre.is_empty) { return sketch; }
+  for (uint64_t& slot: sketch.signature_) {
+    is.read(reinterpret_cast<char*>(buffer), sizeof(uint64_t));
+    if (!is.good()) { throw std::runtime_error("error reading from std::istream"); }
+    slot = check_slot_value(load_u64(buffer));
+  }
+  sketch.is_empty_ = false;
+  return sketch;
+}
+
+template<typename A>
+minhash_sketch_alloc<A> minhash_sketch_alloc<A>::deserialize(const void* bytes, size_t size, uint64_t seed,
+    const A& allocator) {
+  if (size < PREAMBLE_BYTES) {
+    throw std::invalid_argument("size: at least " + std::to_string(PREAMBLE_BYTES)
+        + " bytes expected, actual " + std::to_string(size));
+  }
+  const auto* ptr = static_cast<const uint8_t*>(bytes);
+  const preamble pre = check_preamble(ptr, seed);
+  if (!pre.is_empty) {
+    const size_t expected = PREAMBLE_BYTES + sizeof(uint64_t) * pre.k;
+    if (size < expected) {
+      throw std::invalid_argument("size: at least " + std::to_string(expected)
+          + " bytes expected for k = " + std::to_string(pre.k) + ", actual " + std::to_string(size));
+    }
+  }
+  minhash_sketch_alloc sketch(pre.k, seed, allocator);
+  if (pre.is_empty) { return sketch; }
+  ptr += PREAMBLE_BYTES;
+  for (uint64_t& slot: sketch.signature_) {
+    slot = check_slot_value(load_u64(ptr));
+    ptr += sizeof(uint64_t);
+  }
+  sketch.is_empty_ = false;
+  return sketch;
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::write_preamble(uint8_t* bytes) const {
+  bytes[0] = minhash_constants::PREAMBLE_LONGS;
+  bytes[1] = minhash_constants::SERIAL_VERSION;
+  bytes[2] = minhash_constants::FAMILY_ID;
+  bytes[3] = is_empty_ ? FLAG_EMPTY : static_cast<uint8_t>(0);
+  store_u16(bytes + 4, static_cast<uint16_t>(signature_.size()));
+  store_u16(bytes + 6, compute_seed_hash(seed_));
+}
+
+template<typename A>
+auto minhash_sketch_alloc<A>::check_preamble(const uint8_t* bytes, uint64_t seed) -> preamble {
+  if (bytes[0] != minhash_constants::PREAMBLE_LONGS) {
+    throw std::invalid_argument("preamble longs: expected " + std::to_string(minhash_constants::PREAMBLE_LONGS)
+        + ", actual " + std::to_string(bytes[0]));
+  }
+  if (bytes[1] != minhash_constants::SERIAL_VERSION) {
+    throw std::invalid_argument("serial version: expected " + std::to_string(minhash_constants::SERIAL_VERSION)
+        + ", actual " + std::to_string(bytes[1]));
+  }
+  if (bytes[2] != minhash_constants::FAMILY_ID) {
+    throw std::invalid_argument("family ID: expected " + std::to_string(minhash_constants::FAMILY_ID)
+        + ", actual " + std::to_string(bytes[2]));
+  }
+  const uint8_t flags = bytes[3];
+  if ((flags & FLAG_HASH_LIST) != 0) {
+    throw std::invalid_argument("flags: hash-list form is not supported by format version 1");
+  }
+  if ((flags & FLAGS_UNASSIGNED) != 0) {
+    throw std::invalid_argument("flags: unassigned bits are set: " + std::to_string(flags));
+  }
+  const uint16_t k = load_u16(bytes + 4);
+  if (k == 0) { throw std::invalid_argument("k: must be at least 1"); }
+  const uint16_t seed_hash = load_u16(bytes + 6);
+  const uint16_t expected_seed_hash = compute_seed_hash(seed);
+  if (seed_hash != expected_seed_hash) {
+    throw std::invalid_argument("seed hash: expected " + std::to_string(expected_seed_hash)
+        + ", actual " + std::to_string(seed_hash));
+  }
+  preamble pre;
+  pre.is_empty = (flags & FLAG_EMPTY) != 0;
+  pre.k = k;
+  return pre;
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::store_u16(uint8_t* bytes, uint16_t value) {
+  bytes[0] = static_cast<uint8_t>(value & 0xFFU);
+  bytes[1] = static_cast<uint8_t>(value >> 8U);
+}
+
+template<typename A>
+void minhash_sketch_alloc<A>::store_u64(uint8_t* bytes, uint64_t value) {
+  for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+    bytes[i] = static_cast<uint8_t>((value >> (8 * i)) & 0xFFU);
+  }
+}
+
+template<typename A>
+uint16_t minhash_sketch_alloc<A>::load_u16(const uint8_t* bytes) {
+  return static_cast<uint16_t>(static_cast<unsigned>(bytes[0]) | (static_cast<unsigned>(bytes[1]) << 8U));
+}
+
+template<typename A>
+uint64_t minhash_sketch_alloc<A>::load_u64(const uint8_t* bytes) {
+  uint64_t value = 0;
+  for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+    value |= static_cast<uint64_t>(bytes[i]) << (8 * i);
+  }
+  return value;
+}
+
+template<typename A>
+uint64_t minhash_sketch_alloc<A>::check_slot_value(uint64_t value) {
+  // slot values use 63 bits (ADR-0001)
+  if (value > minhash_constants::EMPTY_MARKER) {
+    throw std::invalid_argument("slot value: greater than INT64_MAX: " + std::to_string(value));
+  }
+  return value;
+}
+
 // builder
 
 template<typename A>

@@ -88,6 +88,9 @@ struct point {
   uint64_t retained_max;
   uint64_t bytes_min;
   uint64_t bytes_max;
+  uint64_t ser_bytes_min;
+  uint64_t ser_bytes_max;
+  uint64_t mh_ser_bytes;
 };
 
 void write_bias_sd(std::ostream& out, uint64_t trials, const error_stats& e) {
@@ -110,7 +113,8 @@ void write_row(std::ostream& out, uint16_t k, unsigned m, uint64_t trials, const
   out << "\t";
   write_bias_sd(out, trials, p.th);
   out << "\t" << static_cast<double>(p.th_covered) / t << "\t" << p.retained_min << "\t" << p.retained_max << "\t"
-      << p.bytes_min << "\t" << p.bytes_max << "\t" << 8 * static_cast<uint64_t>(k) << "\n";
+      << p.bytes_min << "\t" << p.bytes_max << "\t" << 8 * static_cast<uint64_t>(k) << "\t" << p.ser_bytes_min
+      << "\t" << p.ser_bytes_max << "\t" << p.mh_ser_bytes << "\n";
 }
 
 // Runs the profile `name`. MinHash uses k, and theta uses lg_k = log2(k) - theta_lg_k_offset.
@@ -136,7 +140,8 @@ void run(std::ostream& out, const std::string& name, const std::vector<uint16_t>
   }
   out << "K\tTargetJ\tN\tTrueJ\tTrials\tTheorySD\tMH_MeanBias\tMH_MeasuredSD\t" << quantile_header("MH_AbsErr")
       << "\tMH_Cover1SD\tMH_Cover2SD\tMH_Cover3SD\tTH_MeanBias\tTH_MeasuredSD\t" << quantile_header("TH_AbsErr")
-      << "\tTH_Cover2SD\tTH_RetainedA_Min\tTH_RetainedA_Max\tTH_BytesA_Min\tTH_BytesA_Max\tMH_Bytes\n";
+      << "\tTH_Cover2SD\tTH_RetainedA_Min\tTH_RetainedA_Max\tTH_BytesA_Min\tTH_BytesA_Max\tMH_Bytes"
+      << "\tTH_SerBytesA_Min\tTH_SerBytesA_Max\tMH_SerBytes\n";
 
   const auto start = std::chrono::steady_clock::now();
   for (const uint16_t k : k_values) {
@@ -156,6 +161,9 @@ void run(std::ostream& out, const std::string& name, const std::vector<uint16_t>
                                    std::numeric_limits<uint64_t>::max(),
                                    0,
                                    std::numeric_limits<uint64_t>::max(),
+                                   0,
+                                   std::numeric_limits<uint64_t>::max(),
+                                   0,
                                    0});
       }
     }
@@ -186,6 +194,8 @@ void run(std::ostream& out, const std::string& name, const std::vector<uint16_t>
         }
         const auto retained = static_cast<uint64_t>(ta.get_num_retained());
         const uint64_t bytes = theta_compact_bytes(ta);
+        const auto ser_bytes = static_cast<uint64_t>(ta.compact().get_serialized_size_bytes());
+        const auto mh_ser_bytes = static_cast<uint64_t>(a.get_serialized_size_bytes());
         for (std::size_t mi = 0; mi < M_VALUES.size(); ++mi) {
           auto& pt = points[mi][next];
           if (pt.n == 0) {
@@ -206,6 +216,9 @@ void run(std::ostream& out, const std::string& name, const std::vector<uint16_t>
           pt.retained_max = std::max(pt.retained_max, retained);
           pt.bytes_min = std::min(pt.bytes_min, bytes);
           pt.bytes_max = std::max(pt.bytes_max, bytes);
+          pt.ser_bytes_min = std::min(pt.ser_bytes_min, ser_bytes);
+          pt.ser_bytes_max = std::max(pt.ser_bytes_max, ser_bytes);
+          pt.mh_ser_bytes = mh_ser_bytes;
         }
         ++next;
       }

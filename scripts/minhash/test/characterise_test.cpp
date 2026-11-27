@@ -203,12 +203,12 @@ TEST_CASE("the call_speed smoke profile writes one row per sketch, k and operati
   characterise::call_speed(out, true);
   REQUIRE(out.str().find("\n# cpu=") != std::string::npos);
   const auto rows = speed_rows(out.str(), "Sketch\tK\tOperation\tCalls\tMeanNsPerCall");
-  REQUIRE(rows.size() == 2 * characterise::SMOKE_K_VALUES.size() * 3);
+  REQUIRE(rows.size() == 2 * characterise::SMOKE_K_VALUES.size() * 5);
   for (std::size_t r = 0; r < rows.size(); ++r) {
     const auto& row = rows[r];
     REQUIRE(row.size() == 5);
     REQUIRE(row[0] == (r < rows.size() / 2 ? "minhash" : "theta"));
-    REQUIRE(row[2] == std::array<std::string, 3>{"construct", "merge", "jaccard"}[r % 3]);
+    REQUIRE(row[2] == std::array<std::string, 5>{"construct", "merge", "jaccard", "serialize", "deserialize"}[r % 5]);
     REQUIRE(row[3] == "1024");
     REQUIRE(std::stod(row[4]) > 0.0);
   }
@@ -292,11 +292,13 @@ TEST_CASE("the accuracy_n_half smoke profile writes a complete, deterministic TS
   REQUIRE(metadata.back() == "# theta_lg_k=log2(K)-1");
 
   // 8 fixed columns, 9 MinHash quantiles, 3 MinHash coverages, 2 theta columns, 9 theta
-  // quantiles, theta coverage, 4 theta size columns and MH_Bytes.
-  const std::size_t columns = 37;
+  // quantiles, theta coverage, 4 theta size columns, MH_Bytes, 2 theta serialized size
+  // columns and MH_SerBytes.
+  const std::size_t columns = 40;
   REQUIRE(table.front().size() == columns);
   REQUIRE(table.front().front() == "K");
-  REQUIRE(table.front().back() == "MH_Bytes");
+  REQUIRE(table.front()[36] == "MH_Bytes");
+  REQUIRE(table.front().back() == "MH_SerBytes");
 
   // One row for each (k, m, n) with 0 < (n m) / 10 < n.
   std::size_t rows_per_k = 0;
@@ -309,6 +311,10 @@ TEST_CASE("the accuracy_n_half smoke profile writes a complete, deterministic TS
   for (std::size_t r = 1; r < table.size(); ++r) {
     REQUIRE(table[r].size() == columns);
     REQUIRE(table[r][0] == (r <= rows_per_k ? "64" : "256"));
+    // the MinHash serialized size is 8 + 8k bytes, and theta's is at least its 8-byte preamble
+    REQUIRE(table[r][39] == (r <= rows_per_k ? "520" : "2056"));
+    REQUIRE(std::stoull(table[r][37]) >= 8);
+    REQUIRE(std::stoull(table[r][37]) <= std::stoull(table[r][38]));
   }
 
   std::ostringstream again;

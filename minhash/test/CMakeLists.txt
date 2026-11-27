@@ -32,6 +32,7 @@ target_sources(minhash_test
   PRIVATE
     minhash_sketch_test.cpp
     minhash_sketch_vectors_test.cpp
+    minhash_sketch_serde_test.cpp
     minhash_sketch_stats_test.cpp
     minhash_lsh_test.cpp
 )

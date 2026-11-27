@@ -346,7 +346,7 @@ are committed.
 | `minhash-lsh-accuracy-smoke` | The same, with k = 64 and 128, 256 trials and J in steps of 0.05 | 1 s |
 | `minhash-update-speed` | ns per item of `update()` against n = 1 to 2^20, for MinHash and theta, with `u64`, 8-byte and 64-byte string items | about 1.2 h (estimate) |
 | `minhash-update-speed-smoke` | The same, with k ≤ 256 and n ≤ 2^14 | about 1 s |
-| `minhash-call-speed` | ns per call of construction, merge and `jaccard()` against k, for MinHash and theta | about 30 s (estimate) |
+| `minhash-call-speed` | ns per call of construction, merge, `jaccard()`, `serialize()` and `deserialize()` (bytes API; theta uses its compact form) against k, for MinHash and theta | about 30 s (estimate) |
 | `minhash-call-speed-smoke` | The same, with k ≤ 256 and 2^10 calls | less than 1 s |
 | `minhash-lsh-performance` | The time, memory, recall and precision of finding all pairs with J ≥ 0.5 among N documents: MinHash with the LSH index ((b, r) = (32, 4) and (16, 8), N = 2^8 to 2^18), MinHash `jaccard()` on all pairs (N ≤ 2^14) and theta `jaccard()` on all pairs (N ≤ 2^12), k = 128 | about 8.5 min |
 | `minhash-lsh-performance-smoke` | The same, with N ≤ 2^12 for LSH, 2^11 and 2^10 for brute force, 100 queries for each class and 1 repeat | about 6 s |
@@ -366,8 +366,11 @@ The run time is for an Apple M4 laptop, not counting the build.
 `minhash-accuracy-n` writes these files:
 
 - `accuracy_n.tsv`: one row for each (k, J, n), with the bias, the measured SD,
-  the error quantiles and the bounds coverage of both sketches, and the minimum
-  and maximum retained entries and compact bytes of theta.
+  the error quantiles and the bounds coverage of both sketches, the minimum
+  and maximum retained entries and compact bytes of theta, and the serialized
+  sizes: theta compact `get_serialized_size_bytes()` (minimum and maximum,
+  `TH_SerBytesA_Min` and `TH_SerBytesA_Max`) and MinHash 8 + 8k bytes
+  (`MH_SerBytes`).
 - `accuracy_n_error_j10.svg`, `accuracy_n_error_j50.svg`,
   `accuracy_n_error_j90.svg`, `accuracy_n_coverage.svg` and
   `accuracy_n_memory.svg`: the plots.
