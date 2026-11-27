@@ -215,3 +215,78 @@ These items must give the same signature:
 - Every NaN gives the double NaN row.
 
 An empty string leaves the sketch empty, with every slot at `INT64_MAX`.
+
+## Serialized format, version 1
+
+A sketch is stored as an 8-byte preamble, then the slot values. Every stored
+integer is written and read one byte at a time, in little-endian order, on
+every platform. There is no big-endian form.
+
+| Bytes | Field | Value |
+|---|---|---|
+| 0 | preamble longs | 1 |
+| 1 | serial version | 1 |
+| 2 | family ID | 24 (placeholder, see below) |
+| 3 | flags | bit 0 = empty; bit 1 = hash-list form (reserved, ADR-0003); bits 2–7 unassigned, always 0 |
+| 4–5 | k | uint16, little-endian |
+| 6–7 | seed hash | uint16, little-endian (`compute_seed_hash`) |
+| 8 … 8 + 8k − 1 | slot values | k × uint64, little-endian, in slot order. Only when the sketch is not empty. |
+
+- **Family ID.** 24 is a placeholder and is not final: it is to be confirmed
+  on the dev@datasketches list, and against Java's `Family.java`, before any
+  real row is written. The C++ code keeps it in one constant,
+  `minhash_constants::FAMILY_ID`.
+- **The same first 8 bytes in every form.** Bytes 0–7 have the same meaning in
+  every form of the format. The flags choose the form, and preamble longs gives
+  the length of the header in 8-byte words. A later hash-list form can use 2
+  preamble longs and put its count in bytes 8–15.
+- **Empty sketch.** The 8-byte preamble only, with the empty flag set, k and the
+  seed hash. Deserialization sets every slot to the empty marker `INT64_MAX`
+  and keeps k, so the result can be merged. A non-empty sketch may hold
+  `INT64_MAX` in a slot; only the flag decides emptiness.
+- **Size.** 8 bytes for an empty sketch, and 8 + 8k bytes otherwise.
+- **Checks.** A reader rejects the buffer (C++: `std::invalid_argument`, with a
+  message that names the field) when:
+  - the buffer is shorter than 8 bytes;
+  - preamble longs is not 1;
+  - the serial version is not 1;
+  - the family ID is not the MinHash family ID;
+  - flag bit 1 (hash-list form) is set: "hash-list form is not supported by
+    format version 1";
+  - any of flag bits 2–7 is set;
+  - k is 0;
+  - the seed hash does not match the seed hash of the seed that the caller
+    gives;
+  - the sketch is not empty and the buffer is shorter than 8 + 8k bytes;
+  - any slot value is greater than `INT64_MAX` (slot values use 63 bits,
+    ADR-0001).
+
+  The C++ code checks every preamble field, and the size of a byte buffer,
+  before it allocates the signature. A read error on a stream throws
+  `std::runtime_error`, as in theta.
+- **Extra bytes.** A reader of a byte buffer accepts a buffer longer than the
+  sketch and ignores the bytes after it.
+
+Serialized test vectors, seed = 9001 (seed hash `0x93CC`, stored as `cc93`).
+The slot values are those of "Test vectors" above.
+`minhash/test/minhash_sketch_serde_test.cpp` checks them.
+
+| Sketch | Size | Bytes (hex) |
+|---|---|---|
+| empty, k = 8 | 8 | `010118010800cc93` |
+| "int64 0", k = 8 | 72 | see below |
+| string "a", k = 1 | 16 | `010118000100cc93` `cd7317756d10f376` |
+
+"int64 0", k = 8 (72 bytes; one 8-byte word on each line, preamble first):
+
+```
+010118000800cc93
+e5ba6ea935449963
+920f5c351a7e613b
+5c0ddc21ad59fb47
+ed7e1f3e16ba1d68
+8dc74d7e4799ad01
+32524c1a7fecef07
+372e1eed0c0d3c4c
+a992a0990dad316f
+```

@@ -89,6 +89,15 @@ struct minhash_ops {
     return value(a_copy);
   }
   static double jaccard(const sketch& a, const sketch& b) { return a.jaccard(b); }
+  // The serialized form of a (bytes API).
+  static sketch stored(const sketch& a) { return a; }
+  static double serialize(const sketch& a) {
+    const auto bytes = a.serialize();
+    return static_cast<double>(bytes.size() + bytes[bytes.size() - 1]);
+  }
+  static double deserialize(const sketch::vector_bytes& bytes) {
+    return value(sketch::deserialize(bytes.data(), bytes.size()));
+  }
 };
 
 struct theta_ops {
@@ -105,6 +114,16 @@ struct theta_ops {
   }
   static double jaccard(const sketch& a, const sketch& b) {
     return datasketches::theta_jaccard_similarity::jaccard(a, b)[1];
+  }
+  // Theta stores its compact form, so serialize and deserialize use a compact copy of A.
+  static datasketches::compact_theta_sketch stored(const sketch& a) { return a.compact(); }
+  static double serialize(const datasketches::compact_theta_sketch& a) {
+    const auto bytes = a.serialize();
+    return static_cast<double>(bytes.size() + bytes[bytes.size() - 1]);
+  }
+  static double deserialize(const datasketches::compact_theta_sketch::vector_bytes& bytes) {
+    return static_cast<double>(datasketches::compact_theta_sketch::deserialize(bytes.data(), bytes.size())
+                                   .get_num_retained());
   }
 };
 
@@ -195,9 +214,15 @@ void call_sketch(std::ostream& out, const std::vector<uint16_t>& k_values, uint6
         sink);
     const double merge = mean_ns_per_call(calls, [&] { return Ops::merge(a_copy, a, b, k); }, sink);
     const double jaccard = mean_ns_per_call(calls, [&] { return Ops::jaccard(a, b); }, sink);
+    const auto stored = Ops::stored(a);
+    const auto bytes = stored.serialize();
+    const double serialize = mean_ns_per_call(calls, [&] { return Ops::serialize(stored); }, sink);
+    const double deserialize = mean_ns_per_call(calls, [&] { return Ops::deserialize(bytes); }, sink);
     out << Ops::NAME << "\t" << k << "\tconstruct\t" << calls << "\t" << construct << "\n";
     out << Ops::NAME << "\t" << k << "\tmerge\t" << calls << "\t" << merge << "\n";
     out << Ops::NAME << "\t" << k << "\tjaccard\t" << calls << "\t" << jaccard << "\n";
+    out << Ops::NAME << "\t" << k << "\tserialize\t" << calls << "\t" << serialize << "\n";
+    out << Ops::NAME << "\t" << k << "\tdeserialize\t" << calls << "\t" << deserialize << "\n";
     std::cerr << "call_speed: " << Ops::NAME << " k = " << k << " done\n";
   }
 }

@@ -22,6 +22,8 @@
 
 #include <array>
 #include <cmath>
+#include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,6 +43,12 @@ namespace minhash_constants {
   constexpr uint64_t SPLITMIX64_MIX1 = 0xBF58476D1CE4E5B9ULL;
   /// SplitMix64 second mixing multiplier (ADR-0002)
   constexpr uint64_t SPLITMIX64_MIX2 = 0x94D049BB133111EBULL;
+  /// family ID in the serialized format (placeholder, not final: to be confirmed on the dev@datasketches list)
+  constexpr uint8_t FAMILY_ID = 24;
+  /// serial version of the serialized format
+  constexpr uint8_t SERIAL_VERSION = 1;
+  /// preamble longs (8-byte words of header) of serial version 1
+  constexpr uint8_t PREAMBLE_LONGS = 1;
 } // namespace minhash_constants
 
 // forward declaration
@@ -78,6 +86,10 @@ public:
   using allocator_type = Allocator;
   /// signature type: k slot values
   using vector_u64 = std::vector<uint64_t, Allocator>;
+  /// allocator of bytes, rebound from Allocator
+  using AllocBytes = typename std::allocator_traits<Allocator>::template rebind_alloc<uint8_t>;
+  /// serialized bytes type
+  using vector_bytes = std::vector<uint8_t, AllocBytes>;
 
   class builder;
 
@@ -261,7 +273,69 @@ public:
    */
   string<Allocator> to_string() const;
 
+  /**
+   * Computes the size of the serialized sketch: 8 bytes if the sketch is empty,
+   * and 8 + 8k bytes otherwise (minhash/SPEC.md, "Serialized format, version 1").
+   * @return size in bytes needed to serialize this sketch
+   */
+  size_t get_serialized_size_bytes() const;
+
+  /**
+   * Serializes the sketch to a given stream, in format version 1.
+   * Every integer is written in little-endian byte order.
+   * @param os output stream
+   */
+  void serialize(std::ostream& os) const;
+
+  /**
+   * Serializes the sketch to a byte vector, in format version 1.
+   * Every integer is written in little-endian byte order.
+   * @param header_size_bytes space to reserve in front of the sketch, filled with zeros
+   * @return serialized sketch as a vector of bytes
+   */
+  vector_bytes serialize(unsigned header_size_bytes = 0) const;
+
+  /**
+   * Deserializes a sketch from a given stream.
+   * An empty sketch gets k slots at the empty marker, so it can be merged.
+   * @param is input stream
+   * @param seed the seed for the hash function that was used to create the sketch
+   * @param allocator instance of an Allocator
+   * @return an instance of the sketch
+   * @throws std::invalid_argument if a field of the preamble is invalid, the seed hash
+   * does not match the seed, or a slot value is greater than INT64_MAX
+   * @throws std::runtime_error if the stream cannot be read
+   */
+  static minhash_sketch_alloc deserialize(std::istream& is, uint64_t seed = DEFAULT_SEED,
+      const Allocator& allocator = Allocator());
+
+  /**
+   * Deserializes a sketch from a given array of bytes.
+   * Bytes after the end of the sketch are ignored.
+   * An empty sketch gets k slots at the empty marker, so it can be merged.
+   * @param bytes pointer to the array of bytes
+   * @param size the size of the array
+   * @param seed the seed for the hash function that was used to create the sketch
+   * @param allocator instance of an Allocator
+   * @return an instance of the sketch
+   * @throws std::invalid_argument if the array is too short for the preamble or the slots,
+   * a field of the preamble is invalid, the seed hash does not match the seed, or a slot
+   * value is greater than INT64_MAX
+   */
+  static minhash_sketch_alloc deserialize(const void* bytes, size_t size, uint64_t seed = DEFAULT_SEED,
+      const Allocator& allocator = Allocator());
+
 private:
+  static const size_t PREAMBLE_BYTES = 8;
+  static const uint8_t FLAG_EMPTY = 1;      // bit 0
+  static const uint8_t FLAG_HASH_LIST = 2;  // bit 1: reserved for the hash-list form (ADR-0003)
+  static const uint8_t FLAGS_UNASSIGNED = 0xFC;  // bits 2-7
+
+  struct preamble {
+    bool is_empty;
+    uint16_t k;
+  };
+
   bool is_empty_ = true;
   uint64_t seed_;
   vector_u64 signature_;
@@ -270,6 +344,14 @@ private:
 
   void check_compatible(const minhash_sketch_alloc& other) const;
   uint32_t count_matches(const minhash_sketch_alloc& other) const;
+
+  void write_preamble(uint8_t* bytes) const;
+  static preamble check_preamble(const uint8_t* bytes, uint64_t seed);
+  static void store_u16(uint8_t* bytes, uint16_t value);
+  static void store_u64(uint8_t* bytes, uint64_t value);
+  static uint16_t load_u16(const uint8_t* bytes);
+  static uint64_t load_u64(const uint8_t* bytes);
+  static uint64_t check_slot_value(uint64_t value);
 };
 
 /// MinHash sketch builder
